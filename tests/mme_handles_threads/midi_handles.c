@@ -168,8 +168,10 @@ TEST(mh_midiout_param_before_handle) {
         EXPECT_EQ(U(midiOutLongMsg)(h, NULL, sizeof mh), MMSYSERR_INVALPARAM);
         mhdr_init(&mh, MHDR_PREPARED, 4);
         EXPECT_EQ(U(midiOutLongMsg)(h, &mh, 43), MMSYSERR_INVALPARAM);
-        mhdr_init(&mh, MHDR_PREPARED | 0x20, 4);
+        mhdr_init(&mh, MHDR_PREPARED | 0x40, 4);
         EXPECT_EQ(U(midiOutLongMsg)(h, &mh, sizeof mh), MMSYSERR_INVALPARAM);
+        mhdr_init(&mh, MHDR_PREPARED | 0x20, 4);   /* 0x20 is outside the 0xFFFFCFD0 reject mask */
+        EXPECT_EQ(U(midiOutLongMsg)(h, &mh, sizeof mh), MMSYSERR_INVALHANDLE);
         mhdr_init(&mh, 0, 4);
         EXPECT_EQ(U(midiOutLongMsg)(h, &mh, sizeof mh), MIDIERR_UNPREPARED);
         mhdr_init(&mh, MHDR_PREPARED | MHDR_INQUEUE, 4);

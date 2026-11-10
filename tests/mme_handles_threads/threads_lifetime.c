@@ -74,7 +74,8 @@ static DWORD WINAPI mmio_churn_thread(void *p) {
         if (U(mmioSeek)(h, 0, SEEK_SET) != 0) w->res[2]++;
         if (U(mmioRead)(h, buf, 4) != 4 || memcmp(buf, tag, 4)) w->res[3]++;
         if (U(mmioClose)(h, 0) != 0) w->res[4]++;
-        if (U(mmioClose)(h, 0) != MMSYSERR_INVALHANDLE) w->res[5]++;
+        /* no second close here: another thread's next open may reuse this address, and the stale value would then
+         * close that thread's live handle (observed on the VM) */
     }
     return 0;
 }
@@ -103,7 +104,7 @@ TEST(mh_thread_mmio_concurrent_churn) {
     SetEvent(go);
     for (int i = 0; i <= NTHREADS; i++) if (t[i]) CHECKF(join(t[i], 30000), "thread %d did not finish", i);
     for (int i = 0; i < NTHREADS; i++)
-        for (int k = 0; k < 6; k++) CHECKF(w[i].res[k] == 0, "churn thread %d step %d failed %lu times", i, k, w[i].res[k]);
+        for (int k = 0; k < 5; k++) CHECKF(w[i].res[k] == 0, "churn thread %d step %d failed %lu times", i, k, w[i].res[k]);
     for (int k = 0; k < 4; k++) CHECKF(w[NTHREADS].res[k] == 0, "bad-value validator family %d: %lu non-5 results", k, w[NTHREADS].res[k]);
     CloseHandle(go);
 }
