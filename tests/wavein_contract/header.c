@@ -314,8 +314,8 @@ TEST(wavein_contract_prepare_dev_large_cb) {
     struct { WAVEHDR w; char pad[64]; } x; memset(&x, 0, sizeof(x));
     wic_hdr(&x.w, g_buf, 1024, 0);
     MMRESULT r = P(h, &x.w, sizeof(x));
-    t_note("prepare cb=%u -> %u flags=0x%lx", (unsigned)sizeof(x), r, x.w.dwFlags);
-    CHECK(r == MMSYSERR_NOERROR);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
+    EXPECT_EQ(x.w.dwFlags, WHDR_PREPARED);
     if (r == MMSYSERR_NOERROR) EXPECT_EQ(UP(h, &x.w, sizeof(x)), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
 }
@@ -325,11 +325,13 @@ TEST(wavein_contract_prepare_dev_zero_length) {
     HWAVEIN h = open_dev(); if (!h) return;
     WAVEHDR w; wic_hdr(&w, g_buf, 0, 0);
     MMRESULT r = P(h, &w, sizeof(w));
-    t_note("prepare len 0 -> %u flags=0x%lx", r, w.dwFlags);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);          /* [VM] zero-length buffers are accepted */
+    EXPECT_EQ(w.dwFlags, WHDR_PREPARED);
     if (r == MMSYSERR_NOERROR) EXPECT_EQ(UP(h, &w, sizeof(w)), MMSYSERR_NOERROR);
     wic_hdr(&w, NULL, 0, 0);
     r = P(h, &w, sizeof(w));
-    t_note("prepare NULL data len 0 -> %u flags=0x%lx", r, w.dwFlags);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
+    EXPECT_EQ(w.dwFlags, WHDR_PREPARED);
     if (r == MMSYSERR_NOERROR) EXPECT_EQ(UP(h, &w, sizeof(w)), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
 }
@@ -347,7 +349,8 @@ TEST(wavein_contract_unprepare_dev_wrong_but_valid_handle) {
     WAVEHDR w; wic_hdr(&w, g_buf, 1024, 0);
     EXPECT_EQ(P(a, &w, sizeof(w)), MMSYSERR_NOERROR);
     MMRESULT r = UP(b, &w, sizeof(w));
-    t_note("unprepare on other handle -> %u flags=0x%lx", r, w.dwFlags);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);   /* [VM] any valid HWAVEIN unprepares it */
+    EXPECT_EQ(w.dwFlags, 0);
     if (w.dwFlags & WHDR_PREPARED) EXPECT_EQ(UP(a, &w, sizeof(w)), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInClose)(b), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInClose)(a), MMSYSERR_NOERROR);
@@ -385,9 +388,8 @@ TEST(wavein_contract_addbuffer_dev_flags_after_add) {
     EXPECT_EQ(P(h, &w, sizeof(w)), MMSYSERR_NOERROR);
     w.dwFlags |= WHDR_DONE; w.dwBytesRecorded = 99;
     EXPECT_EQ(AB(h, &w, sizeof(w)), MMSYSERR_NOERROR);
-    t_note("add with DONE preset -> flags=0x%lx rec=%lu", w.dwFlags, w.dwBytesRecorded);
-    CHECK(w.dwFlags & WHDR_INQUEUE);
-    CHECK(!(w.dwFlags & WHDR_DONE));
+    EXPECT_EQ(w.dwFlags, WHDR_PREPARED | WHDR_INQUEUE);   /* DONE cleared on queueing */
+    EXPECT_EQ(w.dwBytesRecorded, 0);                       /* [VM] dwBytesRecorded reset on queueing */
     EXPECT_EQ(U(waveInReset)(h), MMSYSERR_NOERROR);
     for (int i = 0; i < 100 && (w.dwFlags & WHDR_INQUEUE); i++) Sleep(10);
     EXPECT_EQ(UP(h, &w, sizeof(w)), MMSYSERR_NOERROR);

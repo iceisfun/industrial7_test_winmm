@@ -28,8 +28,7 @@ TEST(wavein_contract_dev_idle_start_stop_reset) {
     EXPECT_EQ(U(waveInStop)(h), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInReset)(h), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInStart)(h), MMSYSERR_NOERROR);
-    MMRESULT r = U(waveInStart)(h);
-    t_note("second Start -> %u", r);
+    EXPECT_EQ(U(waveInStart)(h), MMSYSERR_NOERROR);   /* [VM] Start while started -> 0 */
     EXPECT_EQ(U(waveInStop)(h), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInStop)(h), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInReset)(h), MMSYSERR_NOERROR);
@@ -43,9 +42,8 @@ TEST(wavein_contract_dev_close_while_started) {
     HWAVEIN h = wic_open_any(); if (!h) return;
     EXPECT_EQ(U(waveInStart)(h), MMSYSERR_NOERROR);
     MMRESULT r = U(waveInClose)(h);
-    t_note("close while started -> %u", r);
-    if (r != MMSYSERR_NOERROR) { U(waveInReset)(h); EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR); }
-    else CHECK(1);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
+    if (r != MMSYSERR_NOERROR) { U(waveInReset)(h); U(waveInClose)(h); }
 }
 
 /* Double close: the second is 5. */
@@ -98,8 +96,9 @@ TEST(wavein_contract_dev_getpos_short_cb) {
     for (unsigned i = 0; i < sizeof(cbs) / sizeof(cbs[0]); i++) {
         MMTIME t[2]; memset(t, 0xA5, sizeof(t)); t[0].wType = TIME_BYTES;
         MMRESULT r = U(waveInGetPosition)(h, t, cbs[i]);
-        t_note("getpos cb=%u -> %u wType=0x%x", cbs[i], r, t[0].wType);
-        if (cbs[i] >= sizeof(MMTIME)) EXPECT_EQ(r, MMSYSERR_NOERROR);
+        /* [VM] the driver rejects cbmmt < sizeof(MMTIME) (12) with MMSYSERR_ERROR */
+        if (cbs[i] >= sizeof(MMTIME)) CHECKF(r == MMSYSERR_NOERROR, "cb=%u r=%u", cbs[i], r);
+        else CHECKF(r == MMSYSERR_ERROR, "cb=%u r=%u", cbs[i], r);
         CHECK(((unsigned char *)t)[sizeof(t) - 1] == 0xA5);
     }
     EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
@@ -184,10 +183,10 @@ TEST(wavein_contract_dev_message_on_handle) {
     REQUIRE(U(waveInMessage)); REQUIRE(U(waveInClose));
     HWAVEIN h = wic_open_any(); if (!h) return;
     DWORD sz = 0;
-    MMRESULT r = U(waveInMessage)(h, DRV_QUERYDEVICEINTERFACESIZE, (DWORD_PTR)&sz, 0);
-    t_note("handle QUERYDEVICEINTERFACESIZE -> %u size=%lu", r, sz);
-    r = U(waveInMessage)(h, 0x4000, 0, 0);
-    t_note("handle user msg 0x4000 -> %u", r);
+    /* on a handle the message goes straight to the driver (no internal handling): [VM] NOTSUPPORTED */
+    EXPECT_EQ(U(waveInMessage)(h, DRV_QUERYDEVICEINTERFACESIZE, (DWORD_PTR)&sz, 0), MMSYSERR_NOTSUPPORTED);
+    EXPECT_EQ(sz, 0);
+    EXPECT_EQ(U(waveInMessage)(h, 0x4000, 0, 0), MMSYSERR_NOTSUPPORTED);
     EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
     EXPECT_EQ(U(waveInMessage)(h, DRV_QUERYDEVICEINTERFACESIZE, (DWORD_PTR)&sz, 0), MMSYSERR_BADDEVICEID);
 }
@@ -206,9 +205,11 @@ TEST(wavein_contract_dev_message_mapper_preferred) {
     r = U(waveInMessage)((HWAVEIN)(ULONG_PTR)WAVE_MAPPER, DRVM_MAPPER_CONSOLEVOICECOM_GET, (DWORD_PTR)&id, (DWORD_PTR)&fl);
     t_note("CONSOLEVOICECOM_GET -> %u id=0x%lx flags=0x%lx", r, id, fl);
     EXPECT_EQ(r, MMSYSERR_NOERROR);
+    CHECK(id < wic_nin());
+    EXPECT_EQ(U(waveInMessage)((HWAVEIN)(ULONG_PTR)WAVE_MAPPER, DRVM_MAPPER_CONSOLEVOICECOM_GET, 0, (DWORD_PTR)&fl), MMSYSERR_INVALPARAM);
     /* preferred-device messages are mapper-only: a device id is answered 11 by the internal handler */
-    r = U(waveInMessage)((HWAVEIN)0, DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)&id, (DWORD_PTR)&fl);
-    t_note("PREFERRED_GET on id0 -> %u", r);
+    EXPECT_EQ(U(waveInMessage)((HWAVEIN)0, DRVM_MAPPER_PREFERRED_GET, (DWORD_PTR)&id, (DWORD_PTR)&fl), MMSYSERR_INVALPARAM);
+    EXPECT_EQ(U(waveInMessage)((HWAVEIN)0, DRVM_MAPPER_CONSOLEVOICECOM_GET, (DWORD_PTR)&id, (DWORD_PTR)&fl), MMSYSERR_INVALPARAM);
 }
 
 /* A closed HWAVEIN is rejected by every entry point. */

@@ -213,11 +213,12 @@ TEST(wavein_contract_caps_dev_a_caps2_layout) {
     t_note("caps2A id0 mfg=%08lx prod=%08lx name=%08lx", c.ManufacturerGuid.Data1, c.ProductGuid.Data1, c.NameGuid.Data1);
 }
 
-/* W hands cbwic to the driver; record how many bytes a short W request writes. */
+/* W hands (pwic, cbwic) to the driver unchanged. The inbox driver [VM] rejects cbwic < sizeof(WAVEINCAPSW)
+ * (80) with 11 and writes nothing; for larger sizes it writes at most cbwic bytes. */
 TEST(wavein_contract_caps_dev_w_partial_sizes) {
     REQUIRE(U(waveInGetDevCapsW));
     if (!have_dev()) return;
-    static const UINT cbs[] = { 1, 4, 8, 0x48, sizeof(WAVEINCAPSW), sizeof(WAVEINCAPS2W), 0x100 };
+    static const UINT cbs[] = { 1, 4, 8, 0x48, 79, sizeof(WAVEINCAPSW), 81, sizeof(WAVEINCAPS2W), 0x100 };
     WAVEINCAPS2W full; memset(&full, 0, sizeof(full));
     EXPECT_EQ(U(waveInGetDevCapsW)(0, (LPWAVEINCAPSW)&full, sizeof(full)), MMSYSERR_NOERROR);
     for (unsigned i = 0; i < sizeof(cbs) / sizeof(cbs[0]); i++) {
@@ -225,9 +226,14 @@ TEST(wavein_contract_caps_dev_w_partial_sizes) {
         MMRESULT r = U(waveInGetDevCapsW)(0, (LPWAVEINCAPSW)buf, cbs[i]);
         UINT last = 0; for (UINT k = 0; k < sizeof(buf); k++) if (buf[k] != FILLB) last = k + 1;
         t_note("W cb=%u -> %u, last written byte %u", cbs[i], r, last);
-        CHECKF(r == MMSYSERR_NOERROR, "cb=%u r=%u", cbs[i], r);
-        UINT n = cbs[i] < sizeof(full) ? cbs[i] : sizeof(full);
-        CHECKF(last <= n, "cb=%u wrote %u bytes", cbs[i], last);
+        if (cbs[i] < sizeof(WAVEINCAPSW)) {
+            CHECKF(r == MMSYSERR_INVALPARAM, "cb=%u r=%u", cbs[i], r);
+            CHECKF(last == 0, "cb=%u wrote %u bytes", cbs[i], last);
+        } else {
+            CHECKF(r == MMSYSERR_NOERROR, "cb=%u r=%u", cbs[i], r);
+            CHECKF(last <= cbs[i], "cb=%u wrote %u bytes", cbs[i], last);
+            CHECKF(!memcmp(buf, &full, sizeof(WAVEINCAPSW)), "cb=%u WAVEINCAPSW part differs", cbs[i]);
+        }
     }
 }
 
@@ -260,6 +266,7 @@ TEST(wavein_contract_caps_dev_mapper_handle_as_id) {
     char nm[64]; WideCharToMultiByte(CP_UTF8, 0, a.szPname, -1, nm, sizeof(nm), NULL, NULL);
     t_note("caps(mapper handle) -> %u \"%s\"", r, nm);
     EXPECT_EQ(r, MMSYSERR_NOERROR);
+    if (!t_is_wine()) EXPECT_WSTR(a.szPname, L"Microsoft Sound Mapper");
     EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
 }
 

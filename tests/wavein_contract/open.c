@@ -148,10 +148,7 @@ static void flag_bit_query(UINT id) {
         MMRESULT r = U(waveInOpen)(NULL, id, pcm(), 0, 0, WAVE_FORMAT_QUERY | bit);
         if (bit_invalid(id, bit)) CHECKF(r == MMSYSERR_INVALFLAG, "id=0x%x bit=0x%lx r=%u", id, bit, r);
         else if (!wic_nin()) CHECKF(r == MMSYSERR_BADDEVICEID, "id=0x%x bit=0x%lx r=%u", id, bit, r);
-        else {
-            CHECKF(r != MMSYSERR_INVALFLAG && r != MMSYSERR_INVALPARAM, "id=0x%x bit=0x%lx r=%u", id, bit, r);
-            t_note("query id=0x%x bit=0x%lx -> %u", id, bit, r);
-        }
+        else CHECKF(r == MMSYSERR_NOERROR, "id=0x%x bit=0x%lx r=%u", id, bit, r);   /* [VM] every pass bit is accepted */
     }
 }
 
@@ -165,11 +162,7 @@ TEST(wavein_contract_open_flagbits_query_id9999) {
         DWORD bit = 1u << b;
         MMRESULT r = U(waveInOpen)(NULL, 9999, pcm(), 0, 0, WAVE_FORMAT_QUERY | bit);
         if (bit_invalid(9999, bit)) CHECKF(r == MMSYSERR_INVALFLAG, "bit=0x%lx r=%u", bit, r);
-        else if (bit == WAVE_MAPPED && wic_nin()) {
-            /* WAVE_MAPPED resolves the mapper driver; the id is only passed down as uMappedDeviceID */
-            t_note("query id=9999 WAVE_MAPPED -> %u", r);
-            CHECKF(r != MMSYSERR_INVALFLAG && r != MMSYSERR_INVALPARAM, "r=%u", r);
-        } else CHECKF(r == MMSYSERR_BADDEVICEID, "bit=0x%lx r=%u", bit, r);
+        else CHECKF(r == MMSYSERR_BADDEVICEID, "bit=0x%lx r=%u", bit, r);  /* WAVE_MAPPED too: the mapper rejects id 9999 [VM] */
     }
 }
 
@@ -367,9 +360,13 @@ TEST(wavein_contract_open_dev_mapper_commdefault) {
     if (!wic_nin()) { t_skip("no waveIn device"); return; }
     HWAVEIN h = NULL;
     MMRESULT r = U(waveInOpen)(&h, WAVE_MAPPER, pcm(), 0, 0, WAVE_MAPPED_DEFAULT_COMMUNICATION_DEVICE);
-    t_note("open mapper|0x10 -> %u", r);
-    CHECK(r != MMSYSERR_INVALFLAG);
-    if (r == MMSYSERR_NOERROR) { UINT id = 7; U(waveInGetID)(h, &id); t_note("GetID=0x%x", id); EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR); }
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
+    if (r == MMSYSERR_NOERROR) {
+        UINT id = 7;
+        EXPECT_EQ(U(waveInGetID)(h, &id), MMSYSERR_NOERROR);
+        EXPECT_EQ(id, WAVE_MAPPER);
+        EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
+    }
 }
 TEST(wavein_contract_open_dev_allowsync_direct) {
     REQUIRE(U(waveInOpen)); REQUIRE(U(waveInClose));
@@ -378,8 +375,7 @@ TEST(wavein_contract_open_dev_allowsync_direct) {
     for (int i = 0; i < 3; i++) {
         HWAVEIN h = NULL;
         MMRESULT r = U(waveInOpen)(&h, 0, pcm(), 0, 0, fl[i]);
-        t_note("open id0 flags=0x%lx -> %u", fl[i], r);
-        CHECKF(r != MMSYSERR_INVALFLAG && r != MMSYSERR_INVALPARAM, "flags=0x%lx r=%u", fl[i], r);
+        CHECKF(r == MMSYSERR_NOERROR, "flags=0x%lx r=%u", fl[i], r);
         if (r == MMSYSERR_NOERROR) EXPECT_EQ(U(waveInClose)(h), MMSYSERR_NOERROR);
     }
 }
@@ -413,7 +409,7 @@ TEST(wavein_contract_open_dev_two_handles) {
     HWAVEIN a = NULL, b = NULL;
     EXPECT_EQ(wic_open(&a, WAVE_MAPPER), MMSYSERR_NOERROR);
     MMRESULT r = wic_open(&b, WAVE_MAPPER);
-    t_note("second concurrent mapper open -> %u", r);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);   /* [VM] shared-mode capture: two opens coexist */
     if (r == MMSYSERR_NOERROR) { CHECK(a != b); EXPECT_EQ(U(waveInClose)(b), MMSYSERR_NOERROR); }
     if (a) EXPECT_EQ(U(waveInClose)(a), MMSYSERR_NOERROR);
 }
@@ -430,7 +426,7 @@ TEST(wavein_contract_open_dev_query_formats) {
         MMRESULT r = U(waveInOpen)(NULL, WAVE_MAPPER, &f, 0, 0, WAVE_FORMAT_QUERY);
         CHECKF(r == MMSYSERR_NOERROR, "mapper %lu/%u/%u r=%u", ok[i].rate, ok[i].bits, ok[i].ch, r);
         r = U(waveInOpen)(NULL, 0, &f, 0, 0, WAVE_FORMAT_QUERY);
-        t_note("id0 query %lu/%u/%u -> %u", ok[i].rate, ok[i].bits, ok[i].ch, r);
+        CHECKF(r == MMSYSERR_NOERROR, "id0 %lu/%u/%u r=%u", ok[i].rate, ok[i].bits, ok[i].ch, r);
     }
 }
 
@@ -441,15 +437,18 @@ TEST(wavein_contract_open_dev_query_bad_format) {
     wic_pcm(&f, 44100, 16, 1); f.wFormatTag = 0x1234;
     MMRESULT r1 = U(waveInOpen)(NULL, WAVE_MAPPER, &f, 0, 0, WAVE_FORMAT_QUERY);
     MMRESULT r2 = U(waveInOpen)(NULL, 0, &f, 0, 0, WAVE_FORMAT_QUERY);
-    t_note("bad tag query mapper=%u id0=%u", r1, r2);
+    EXPECT_EQ(r1, WAVERR_BADFORMAT);
+    EXPECT_EQ(r2, WAVERR_BADFORMAT);
     wic_pcm(&f, 44100, 16, 6);
     MMRESULT r3 = U(waveInOpen)(NULL, 0, &f, 0, 0, WAVE_FORMAT_QUERY);
     wic_pcm(&f, 44100, 16, 0);
     MMRESULT r4 = U(waveInOpen)(NULL, 0, &f, 0, 0, WAVE_FORMAT_QUERY);
     wic_pcm(&f, 0, 16, 1);
     MMRESULT r5 = U(waveInOpen)(NULL, 0, &f, 0, 0, WAVE_FORMAT_QUERY);
-    t_note("6ch=%u 0ch=%u 0Hz=%u", r3, r4, r5);
-    CHECK(r1 != MMSYSERR_NOERROR); CHECK(r2 != MMSYSERR_NOERROR);
+    /* [VM] the inbox HDA capture endpoint: 6 channels, 0 channels and 0 Hz are all 32 */
+    EXPECT_EQ(r3, WAVERR_BADFORMAT);
+    EXPECT_EQ(r4, WAVERR_BADFORMAT);
+    EXPECT_EQ(r5, WAVERR_BADFORMAT);
 }
 
 /* A real (non-query) open with an unsupported format fails and NULLs *phwi. */
@@ -459,8 +458,7 @@ TEST(wavein_contract_open_dev_bad_format_nulls_phwi) {
     WAVEFORMATEX f; wic_pcm(&f, 44100, 16, 1); f.wFormatTag = 0x1234;
     HWAVEIN h = WIC_SENT_HANDLE;
     MMRESULT r = U(waveInOpen)(&h, 0, &f, 0, 0, CALLBACK_NULL);
-    t_note("open id0 bad tag -> %u", r);
-    CHECK(r != MMSYSERR_NOERROR);
+    EXPECT_EQ(r, WAVERR_BADFORMAT);
     CHECK(h == NULL);
     if (r == MMSYSERR_NOERROR && h && h != WIC_SENT_HANDLE) U(waveInClose)(h);
 }
