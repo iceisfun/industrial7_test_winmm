@@ -94,6 +94,17 @@ TEST(time_basic_systime_every_cb_0_to_64) {
     }
 }
 
+TEST(time_basic_systime_every_cb_0_to_1024) {
+    REQUIRE(U(timeGetSystemTime));
+    BYTE b[24];
+    for (UINT cb = 0; cb <= 1024; cb++) {
+        memset(b, 0x93, sizeof b);
+        MMRESULT r = U(timeGetSystemTime)((LPMMTIME)b, cb);
+        if (cb < 12) CHECKF(r == TB_STRUCT && untouched(b, 0, sizeof b, 0x93), "cb=%u r=%u", cb, r);
+        else CHECKF(r == 0 && ((MMTIME *)b)->wType == TIME_MS && untouched(b, 8, sizeof b, 0x93), "cb=%u r=%u", cb, r);
+    }
+}
+
 TEST(time_basic_systime_large_cb_table) {
     REQUIRE(U(timeGetSystemTime));
     static const UINT cbs[] = { 12, 13, 16, 20, 24, 0x100, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF };

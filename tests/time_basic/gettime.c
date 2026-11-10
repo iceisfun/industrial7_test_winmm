@@ -162,9 +162,10 @@ TEST(time_basic_gettime_granularity_with_period1) {
         if (d > 0) { steps++; if (d > maxstep) maxstep = d; }
         prev = t;
     }
+    ULONG held = tb_cur_res();
     EXPECT_EQ(tb_end(pmin), 0);
     EXPECT_EQ(dec, 0);
-    t_note("after timeBeginPeriod(%u): %d steps in 100 ms, largest step %ld, cur res %lu", pmin, steps, maxstep, tb_cur_res());
+    t_note("after timeBeginPeriod(%u): %d steps in 100 ms, largest step %ld, cur res %lu", pmin, steps, maxstep, held);
     CHECK(steps >= 1);
 }
 

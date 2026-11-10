@@ -331,6 +331,8 @@ TEST(time_basic_period_resolution_each_counted_period_note) {
         ULONG during = tb_cur_res();
         CHECKF(E(p) == 0, "End(%u)", p);
         CHECKF(during <= before, "p=%u during=%lu before=%lu", p, during, before);
+        /* [VM] the kernel grants exactly p*10000 on the guest; other processes can only make it finer */
+        CHECKF(during <= (ULONG)p * 10000, "p=%u during=%lu", p, during);
         n += snprintf(line + n, sizeof line - n, " %u:%lu", p, during);
         if (n >= (int)sizeof line - 32) break;
     }
@@ -562,6 +564,46 @@ TEST(time_basic_period_every_value_0_to_64) {
         else if (p < u)    { CHECKF(rb == 0 && re == 0 && re2 == 97, "p=%u %u/%u/%u", p, rb, re, re2); }
         else               { CHECKF(rb == 0 && re == 0 && re2 == 0, "p=%u %u/%u/%u", p, rb, re, re2); }
     }
+}
+
+TEST(time_basic_period_every_value_0_to_2048) {
+    REQUIRE(U(timeBeginPeriod)); REQUIRE(U(timeEndPeriod));
+    UINT pmin = tb_pmin(), u = tb_umax();
+    for (UINT p = 0; p <= 2048; p++) {
+        MMRESULT rb = B(p), rb2 = B(p), re = E(p), re2 = E(p), re3 = E(p);
+        MMRESULT xb = p < pmin ? 97 : 0, xe3 = (p >= pmin && p < u) ? 97 : (p < pmin ? 97 : 0);
+        CHECKF(rb == xb && rb2 == xb, "Begin(%u) %u/%u", p, rb, rb2);
+        CHECKF(re == xb && re2 == xb, "End(%u) %u/%u", p, re, re2);
+        CHECKF(re3 == xe3, "End(%u) third %u", p, re3);
+    }
+}
+
+TEST(time_basic_period_high_bit_values_uncounted) {
+    REQUIRE(U(timeBeginPeriod)); REQUIRE(U(timeEndPeriod));
+    for (int b = 6; b < 32; b++) {
+        UINT p = 1u << b;
+        CHECKF(B(p) == 0, "Begin(0x%x)", p);
+        CHECKF(E(p) == 0, "End(0x%x)", p);
+        CHECKF(E(p) == 0, "End(0x%x) again", p);
+        CHECKF(B(p | 1) == 0 && E(p | 1) == 0 && E(p | 1) == 0, "0x%x", p | 1);
+        CHECKF(B(~p) == 0 && E(~p) == 0 && E(~p) == 0, "0x%x", ~p);
+    }
+}
+
+TEST(time_basic_period_resolution_restored_finer_period_held) {
+    REQUIRE(U(timeBeginPeriod)); REQUIRE(U(timeEndPeriod));
+    UINT a = tb_pmin(), b = tb_pmin() + 4;
+    if (b >= tb_umax()) { t_skip("range"); return; }
+    EXPECT_EQ(B(b), 0);
+    EXPECT_EQ(B(a), 0);
+    ULONG both = tb_cur_res();
+    EXPECT_EQ(E(a), 0);
+    ULONG only_b = tb_cur_res();
+    EXPECT_EQ(E(b), 0);
+    t_note("held {%u,%u}: %lu, after End(%u): %lu", a, b, both, a, only_b);
+    CHECKF(both <= (ULONG)a * 10000, "both=%lu", both);
+    /* falling back to the next counted period keeps at least that period's resolution */
+    CHECKF(only_b <= (ULONG)b * 10000, "only_b=%lu", only_b);
 }
 
 TEST(time_basic_period_balanced_at_end_of_area) {

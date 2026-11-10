@@ -136,6 +136,18 @@ TEST(time_basic_devcaps_every_cb_0_to_64) {
     }
 }
 
+TEST(time_basic_devcaps_every_cb_0_to_1024) {
+    REQUIRE(U(timeGetDevCaps));
+    UINT pmin = tb_pmin();
+    static BYTE b[1040];
+    for (UINT cb = 0; cb <= 1024; cb++) {
+        memset(b, 0x5D, 24);
+        MMRESULT r = U(timeGetDevCaps)((LPTIMECAPS)b, cb);
+        if (cb < 8) CHECKF(r == TB_NOCANDO && untouched(b, 0, 24, 0x5D), "cb=%u r=%u", cb, r);
+        else CHECKF(r == 0 && ((TIMECAPS *)b)->wPeriodMin == pmin && ((TIMECAPS *)b)->wPeriodMax == 1000000 && untouched(b, 8, 24, 0x5D), "cb=%u r=%u", cb, r);
+    }
+}
+
 TEST(time_basic_devcaps_overwrites_garbage) {
     REQUIRE(U(timeGetDevCaps));
     static const UINT seeds[] = { 0, 1, 0xFFFFFFFF, 0x80000000, 1000000, 16 };
