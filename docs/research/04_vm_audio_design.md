@@ -7,7 +7,10 @@ configuration, how fast do they appear, and can a payload's real playback be che
 Everything below is measured with `tools/proto/audprobe.c` (guest probe) driven by
 `tools/proto/run_audio_configs.sh` (one boot per QEMU configuration) and `tools/proto/wavscan.py`
 (host-side analysis of the QEMU `wav` audiodev capture). Raw logs: `~/w10lab/runs/winmm-audio-r1`,
-`-r2`, `-r3` (serial.log, out.wav, wavscan.txt per configuration).
+`-r2`, `-r3` (serial.log, out.wav, wavscan.txt per configuration). Reproduce with
+`tools/proto/run_audio_configs.sh OUTROOT noaudio hda-duplex-wav hda-output-wav multi` (build audprobe.exe with
+`x86_64-w64-mingw32-gcc -O2 -o audprobe.exe audprobe.c -lwinmm -lole32 -luuid -ladvapi32`); one boot per
+configuration, about 2 minutes of guest time each, plus whatever the shared lock queue costs.
 
 ## 1. Recommendation (TL;DR)
 
@@ -16,6 +19,9 @@ Everything below is measured with `tools/proto/audprobe.c` (guest probe) driven 
   (or `-audiodev none,...` when the host capture is not wanted). Inbox `hdaudio.inf` binds with no driver
   install; the guest has 1 waveOut, 1 waveIn, 2 mixers, 1 render + 1 capture endpoint, all defaults set,
   already when run.cmd starts. No service start is needed.
+- Alternative with the same guest contract: `-device usb-audio,audiodev=snd0` (inbox usbaudio, render only).
+  AC97, ES1370 and SB16 are not usable (no inbox driver / no ISA PnP). If several devices are present the
+  default endpoint is not necessarily the first controller (usb-audio won over two HDA codecs).
 - Every test must also pass on a guest with no audio hardware (configuration `noaudio`): it is the
   contract-only path (MMSYSERR_BADDEVICEID for WAVE_MAPPER and id 0, MIDI mapper present but unopenable).
   Run the corpus twice per oracle pass when possible: once with `noaudio`, once with HDA duplex.
@@ -34,7 +40,6 @@ Everything below is measured with `tools/proto/audprobe.c` (guest probe) driven 
 | hda-duplex-wav | intel-hda + hda-duplex, wav | 1 | 1 | 1 | 0 | 2 | 0 | 16 | 1 | 1 |
 | hda-output-wav | intel-hda + hda-output, wav | 1 | 0 | 1 | 0 | 1 | 0 | 16 | 1 | 0 |
 | multi | intel-hda + hda-output (none); ich9-intel-hda + hda-micro (none); usb-audio (wav); AC97, ES1370, sb16 (none) | 3 | 1 | 1 | 0 | 4 | 0 | 16 | 3 | 1 |
-@@R3TABLE@@
 
 Columns are the winmm `*GetNumDevs` results (midiOut counts the GS Wavetable Synth, not the mapper; joy is
 `joyGetNumDevs`, which is 16 regardless of hardware) and the mmdevapi `EnumAudioEndpoints(DEVICE_STATEMASK_ALL)`
@@ -73,7 +78,11 @@ Alternative cards (multi boot, every QEMU 8.2 audio model at once):
 - Capture through hda-micro completed a 0.5 s buffer in 516 ms (1016 ms in the hda-duplex boot): capture start
   latency varies.
 
-@@R3NOTES@@
+Backend `none` vs `wav`: the audiodev backend is host-side only; the guest sees the same codec (PCI/HDA ids,
+endpoints, caps) for either. A dedicated `hda-duplex-none` boot was queued for this pass but cancelled
+after about 50 minutes starved on the shared oracle lock (35+ waiters across workflows); the earlier
+noaudio/duplex/output/multi boots plus the fact that the backend never reaches the guest make it redundant.
+`none` discards output and supplies silent input; `wav` writes output to a host file and has no input voice.
 
 ## 3. Device details (hda-duplex)
 
