@@ -762,7 +762,7 @@ Confirmed against the decomp (no change needed):
   unknown id -> 97.
 * mmio: mmioOpen invalid flags -> NULL without touching wErrorRet, 0x24300
   -> (HMMIO)1, mmioSeek unknown origin -> 0, mmioDescend (flags mask
-  0xFFFFFF8F -> 10, NULL ckinfo -> 11, NULL hmmio -> 258, MThd/MTrk swap,
+  0xFFFFFF8F -> 10, NULL ckinfo -> 11, NULL hmmio -> 258, MThd/MTrk swap (pass 2: internal only, see correction 9),
   not found 265, seek failure 263), mmioStringToFOURCCA space padding,
   mmioInstallIOProcW mask.
 * PlaySound flag mask 0xFF80DF20, SND_NOSTOP while playing -> FALSE,
