@@ -336,38 +336,76 @@ static size_t written_len(UINT_PTR id, UINT cb) {
     size_t a = ee_untouched_from(b1, sizeof b1, 0x00), b = ee_untouched_from(b2, sizeof b2, 0xFF);
     return a > b ? a : b;
 }
-static void w_size_sweep(UINT_PTR id, const char *what) {
-    WAVEOUTCAPS2W full; memset(&full, 0, sizeof full);
-    if (U(waveOutGetDevCapsW)(id, (LPWAVEOUTCAPSW)&full, sizeof full)) { CHECKF(0, "%s full caps failed", what); return; }
-    int over = 0, prefix = 0, fails = 0;
-    char rec[512]; int rl = 0;
-    static const UINT cbs[] = { 1, 2, 3, 4, 6, 8, 9, 40, 71, 72, 76, 80, 83, 84, 85, 100, 131, 132, 133, 200, 260 };
-    for (size_t k = 0; k < sizeof cbs / sizeof cbs[0]; k++) {
-        UINT cb = cbs[k];
-        unsigned char b[300]; ee_fill(b, sizeof b, 0xB4);
-        MMRESULT r = U(waveOutGetDevCapsW)(id, (LPWAVEOUTCAPSW)b, cb);
-        size_t wl = written_len(id, cb);
-        rl += snprintf(rec + rl, sizeof rec - rl, " %u:%u/%zu", cb, r, wl);
-        if (r) { fails++; continue; }
-        if (wl > cb) over++;                                /* never past the caller's size */
-        size_t cmp = wl < sizeof full ? wl : sizeof full;
-        if (memcmp(b, &full, cmp) && cmp) prefix++;
+/* [VM hda] wdmaud (devices): cbwoc < sizeof(WAVEOUTCAPSW) -> 11; otherwise 0, the first 84 bytes are WAVEOUTCAPSW, the
+ * WAVEOUTCAPS2W guids follow only when cbwoc >= 132, and every byte up to cbwoc is written (the rest is zeroed).
+ * msacm32 (the mapper): cbwoc < 84 -> 11 with nothing written; otherwise exactly the 84-byte WAVEOUTCAPSW, nothing
+ * after it (the mapper has no CAPS2 part). The A form hides all of this: it always asks for the full 0x84 bytes. */
+static const UINT w_cbs[] = { 1, 2, 3, 4, 6, 8, 9, 40, 71, 72, 76, 80, 83, 84, 85, 99, 100, 120, 131, 132, 133, 150, 200, 260 };
+static void w_size_record(UINT_PTR id, const char *what) {
+    char rec[600]; int rl = 0;
+    for (size_t k = 0; k < sizeof w_cbs / sizeof w_cbs[0]; k++) {
+        MMRESULT r; unsigned char b[300]; ee_fill(b, sizeof b, 0xB4);
+        r = U(waveOutGetDevCapsW)(id, (LPWAVEOUTCAPSW)b, w_cbs[k]);
+        rl += snprintf(rec + rl, sizeof rec - rl, " %u:%u/%zu", w_cbs[k], r, written_len(id, w_cbs[k]));
     }
     t_note("%s W sizes (cb:ret/written):%s", what, rec);
-    EXPECT_EQ(over, 0);
-    EXPECT_EQ(prefix, 0);
-    t_note("%s W small-size failures: %d", what, fails);
 }
-TEST(wocaps_w_size_sweep_devices) {
+TEST(wocaps_w_size_protocol_devices) {
     REQUIRE(U(waveOutGetDevCapsW)); REQUIRE(U(waveOutGetNumDevs));
     UINT n = nwo();
     if (!n) { t_skip("no waveOut device"); return; }
-    for (UINT i = 0; i < n; i++) { char w[32]; snprintf(w, sizeof w, "id %u", i); w_size_sweep(i, w); }
+    for (UINT i = 0; i < n; i++) {
+        WAVEOUTCAPS2W full; memset(&full, 0, sizeof full);
+        EXPECT_EQ(U(waveOutGetDevCapsW)(i, (LPWAVEOUTCAPSW)&full, sizeof full), 0);
+        char w[32]; snprintf(w, sizeof w, "id %u", i); w_size_record(i, w);
+        for (size_t k = 0; k < sizeof w_cbs / sizeof w_cbs[0]; k++) {
+            UINT cb = w_cbs[k];
+            unsigned char b[300]; ee_fill(b, sizeof b, 0xB4);
+            MMRESULT r = U(waveOutGetDevCapsW)(i, (LPWAVEOUTCAPSW)b, cb);
+            if (cb < W_SIZE) { CHECKF(r == MMSYSERR_INVALPARAM, "id %u cb %u -> %u", i, cb, r); continue; }
+            CHECKF(r == 0, "id %u cb %u -> %u", i, cb, r);
+            if (r) continue;
+            CHECKF(!memcmp(b, &full, W_SIZE), "id %u cb %u classic part differs", i, cb);
+            if (cb >= W2_SIZE) {
+                CHECKF(!memcmp(b + W_SIZE, (char *)&full + W_SIZE, W2_SIZE - W_SIZE), "id %u cb %u guids differ", i, cb);
+                CHECKF(ee_all(b + W2_SIZE, cb - W2_SIZE, 0), "id %u cb %u: bytes 132..cb not zero", i, cb);
+            } else {
+                CHECKF(ee_all(b + W_SIZE, cb - W_SIZE, 0), "id %u cb %u: bytes 84..cb not zero", i, cb);
+            }
+            CHECKF(ee_all(b + cb, sizeof b - cb, 0xB4), "id %u cb %u wrote past cb", i, cb);
+        }
+    }
 }
-TEST(wocaps_w_size_sweep_mapper) {
+TEST(wocaps_w_size_protocol_mapper) {
     REQUIRE(U(waveOutGetDevCapsW)); REQUIRE(U(waveInGetNumDevs));
     if (!nwave()) { t_skip("no wave device"); return; }
-    w_size_sweep(WAVE_MAPPER, "mapper");
+    WAVEOUTCAPSW full; memset(&full, 0, sizeof full);
+    EXPECT_EQ(U(waveOutGetDevCapsW)(WAVE_MAPPER, &full, sizeof full), 0);
+    w_size_record(WAVE_MAPPER, "mapper");
+    for (size_t k = 0; k < sizeof w_cbs / sizeof w_cbs[0]; k++) {
+        UINT cb = w_cbs[k];
+        unsigned char b[300]; ee_fill(b, sizeof b, 0xB4);
+        MMRESULT r = U(waveOutGetDevCapsW)(WAVE_MAPPER, (LPWAVEOUTCAPSW)b, cb);
+        if (cb < W_SIZE) {
+            CHECKF(r == MMSYSERR_INVALPARAM, "mapper cb %u -> %u", cb, r);
+            CHECKF(ee_all(b, sizeof b, 0xB4), "mapper cb %u wrote on failure", cb);
+            continue;
+        }
+        CHECKF(r == 0, "mapper cb %u -> %u", cb, r);
+        CHECKF(!memcmp(b, &full, W_SIZE), "mapper cb %u differs", cb);
+        CHECKF(ee_all(b + W_SIZE, sizeof b - W_SIZE, 0xB4), "mapper cb %u wrote past 84", cb);
+    }
+}
+/* The A form succeeds for every size where the W form refuses (it never passes the caller's size down). */
+TEST(wocaps_a_succeeds_where_w_refuses) {
+    REQUIRE(U(waveOutGetDevCapsW)); REQUIRE(U(waveOutGetDevCapsA)); REQUIRE(U(waveInGetNumDevs));
+    if (!nwave()) { t_skip("no wave device"); return; }
+    UINT_PTR id = nwo() ? 0 : WAVE_MAPPER;
+    unsigned char b[300];
+    for (UINT cb = 1; cb < W_SIZE; cb += 7) {
+        EXPECT_EQ(U(waveOutGetDevCapsW)(id, (LPWAVEOUTCAPSW)b, cb), MMSYSERR_INVALPARAM);
+        EXPECT_EQ(U(waveOutGetDevCapsA)(id, (LPWAVEOUTCAPSA)b, cb), MMSYSERR_NOERROR);
+    }
 }
 TEST(wocaps_w_classic_size_no_overrun) {
     REQUIRE(U(waveOutGetDevCapsW)); REQUIRE(U(waveInGetNumDevs));

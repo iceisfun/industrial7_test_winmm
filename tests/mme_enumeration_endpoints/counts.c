@@ -340,8 +340,9 @@ TEST(enum_counts_unchanged_by_open_close) {
     CHECK(!memcmp(&a, &b, sizeof a));
 }
 
-/* GetNumDevs through the driver message interface: WODM_GETNUMDEVS / WIDM_GETNUMDEVS sent by id to device 0 are
- * answered by that device's driver (wdmaud), which reports its own per-driver count (one endpoint per driver). */
+/* GetNumDevs through the driver message interface: WODM_GETNUMDEVS sent by id reaches the device's driver (wdmaud)
+ * with dwUser 0 and no device-interface parameter; its answer is driver-internal [VM hda: 0x60000], so it is only
+ * recorded. Out of range ids stop at winmmbase with 2. */
 TEST(enum_driver_getnumdevs_message) {
     REQUIRE(U(waveOutMessage)); REQUIRE(U(waveOutGetNumDevs));
     UINT n = U(waveOutGetNumDevs)();
@@ -351,7 +352,7 @@ TEST(enum_driver_getnumdevs_message) {
     }
     for (UINT i = 0; i < n; i++) {
         MMRESULT r = U(waveOutMessage)((HWAVEOUT)(UINT_PTR)i, WODM_GETNUMDEVS, 0, 0);
-        t_note("waveOutMessage(%u, WODM_GETNUMDEVS) -> %u", i, r);
-        CHECKF(r >= 1 && r <= n, "driver count %u (total %u)", r, n);
+        t_note("waveOutMessage(%u, WODM_GETNUMDEVS) -> 0x%x", i, r);
     }
+    EXPECT_EQ(U(waveOutMessage)((HWAVEOUT)(UINT_PTR)n, WODM_GETNUMDEVS, 0, 0), MMSYSERR_BADDEVICEID);
 }

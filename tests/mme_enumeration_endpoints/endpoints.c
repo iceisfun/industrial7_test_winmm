@@ -348,8 +348,19 @@ static void devif_protocol(int fam) {
         EXPECT_EQ(lstrlenW(t), lstrlenW(s) - 1);
         EXPECT_EQ(ee_msg(fam, i, DRV_QUERYDEVICEINTERFACE, 0, sz), MMSYSERR_INVALPARAM);
         ee_fill(t, sizeof t, 0x44);
-        EXPECT_EQ(ee_msg(fam, i, DRV_QUERYDEVICEINTERFACE, (DWORD_PTR)t, 0), MMSYSERR_MOREDATA);
+        /* Size 0 / 1 = 0 characters: StringCchCopyW fails with STRSAFE_E_INVALID_PARAMETER, which this message maps to
+         * MMSYSERR_ERROR (only STRSAFE_E_INSUFFICIENT_BUFFER becomes MOREDATA) [decomp + VM]. Unlike
+         * DRV_QUERYFUNCTIONINSTANCEID, where every copy failure is MOREDATA. */
+        EXPECT_EQ(ee_msg(fam, i, DRV_QUERYDEVICEINTERFACE, (DWORD_PTR)t, 0), MMSYSERR_ERROR);
+        EXPECT_EQ(ee_msg(fam, i, DRV_QUERYDEVICEINTERFACE, (DWORD_PTR)t, 1), MMSYSERR_ERROR);
         CHECK(ee_all(t, sizeof t, 0x44));
+        /* Size 2 = 1 character: truncation, MOREDATA with an empty string. */
+        EXPECT_EQ(ee_msg(fam, i, DRV_QUERYDEVICEINTERFACE, (DWORD_PTR)t, 2), MMSYSERR_MOREDATA);
+        EXPECT_EQ(t[0], 0);
+        /* Odd byte count rounds down; exact size + 1 still fits. */
+        ee_fill(t, sizeof t, 0x44);
+        EXPECT_EQ(ee_msg(fam, i, DRV_QUERYDEVICEINTERFACE, (DWORD_PTR)t, sz + 1), MMSYSERR_NOERROR);
+        EXPECT_WSTR(t, s);
     }
     ULONG sz;
     EXPECT_EQ(ee_msg(fam, n, DRV_QUERYDEVICEINTERFACESIZE, (DWORD_PTR)&sz, 0), MMSYSERR_BADDEVICEID);
