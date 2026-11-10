@@ -199,7 +199,7 @@ static DWORD build_row(int r, prow *out) {
     case 49: ROW("odd chunk with its RIFF pad byte before fmt", P_BAD); img_chunk(&m, "junk", "abc", 3); img_pad(&m); break;
     case 50: ROW("PCM cb 18 cbSize 0 bits 0", P_BAD); fcb = 18; f.bits = 0; f.avg = 0; break;
     case 51: ROW("fmt chunk size 0xFFFFFFF0 (runs past RIFF length)", P_BAD); fcb = 0xA0000; break;
-    case 52: ROW("fmt cb 16 then data cb 8 then end, RIFF length short of data", P_PCM); fcb = 0xB0000 | 16; break;
+    case 12: ROW("fmt cb 16 then data cb 8 then end, RIFF length short of data", P_PCM); fcb = 0xB0000 | 16; break;
     /* accepted by the parser; whether the mapper opens it is device-specific */
     case 60: ROW("fmt cb 14 (WAVEFORMAT, bits read as 0)", P_NOTE); fcb = 14; break;
     case 61: ROW("IEEE float mono 8k cb 18", P_NOTE); fcb = 18; f.tag = WAVE_FORMAT_IEEE_FLOAT; f.bits = 32; f.align = 4; f.avg = 32000; dn = 3200; break;

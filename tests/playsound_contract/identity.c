@@ -105,14 +105,14 @@ PTEST(parity_table) {
 PTEST(parity_snd_ansi_long_name) {
     REQUIRE(U(sndPlaySoundA)); REQUIRE(U(PlaySoundA)); ps_quiesce();
     static char name[600];
-    for (int len = 240; len <= 260; len++) {
+    for (int len = 245; len <= 262; len++) {
         memset(name, 0, sizeof name); memcpy(name, "C:\\i7ps_nodir\\", 14);
         for (int k = 14; k < len - 4; k++) name[k] = 'b';
         memcpy(name + len - 4, ".wav", 4);
         BOOL a = U(PlaySoundA)(name, NULL, SND_ASYNC | SND_NODEFAULT);
         BOOL s = U(sndPlaySoundA)(name, SND_ASYNC | SND_NODEFAULT);
         CHECKF(!!a == !!s, "len %d: PlaySoundA %d sndPlaySoundA %d", len, a, s);
-        CHECKF(!!a == (len <= 251), "len %d: %d", len, a);
+        CHECKF(!!a == (len <= 255), "len %d: %d", len, a);
     }
     ps_stop();
 }
@@ -125,7 +125,8 @@ static DWORD WINAPI worker(void *p) {
     static BYTE img[4096];
     for (int i = 0; i < c->iters; i++) {
         if (!U(PlaySoundW)(NULL, NULL, 0)) c->bad++;
-        if (U(PlaySoundW)(L"i7ps_thread_missing", NULL, SND_ASYNC | SND_NODEFAULT)) c->bad++;
+        if (!U(PlaySoundW)(L"i7ps_thread_missing", NULL, SND_ASYNC | SND_NODEFAULT)) c->bad++;
+        if (U(PlaySoundW)(L"i7ps_thread_missing", NULL, SND_NODEFAULT)) c->bad++;
         if (!U(PlaySoundW)(L"", NULL, SND_NODEFAULT)) c->bad++;
         if (U(PlaySoundW)(NULL, NULL, 0x8000)) c->bad++;
         if (!U(PlaySoundA)("C:\\i7ps_thread\\x.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT)) c->bad++;
@@ -183,8 +184,10 @@ PTEST(consumer_shell_event_shape) {
     CHECK(U(PlaySoundW)(L"i7ps_unknown_shell_event", NULL, 0x292013));
     CHECK(U(PlaySoundW)(L"i7ps_unknown_shell_event", NULL, 0x692013));
     ps_quiesce();
-    /* the same call without SND_SYSTEM searches files first and fails */
-    CHECK(!U(PlaySoundW)(L"i7ps_unknown_shell_event", NULL, 0x292013 & ~SND_SYSTEM));
+    /* without SND_SYSTEM the alias and file lookups miss and the name is posted all the same; sync it fails */
+    CHECK(U(PlaySoundW)(L"i7ps_unknown_shell_event", NULL, 0x292013 & ~SND_SYSTEM));
+    CHECK(!U(PlaySoundW)(L"i7ps_unknown_shell_event", NULL, 0x292013 & ~(SND_SYSTEM | SND_ASYNC)));
+    CHECK(!U(PlaySoundW)(L"i7ps_unknown_shell_event", NULL, 0x292013 & ~SND_ASYNC));
     ps_stop();
 }
 
@@ -225,7 +228,9 @@ PTEST(consumer_nostop_idle) {
     CHECK(U(PlaySoundW)((LPCWSTR)g_img, NULL, SND_MEMORY | SND_ASYNC | SND_NOSTOP | SND_NODEFAULT));
     ps_quiesce();
     CHECK(!!U(sndPlaySoundW)((LPCWSTR)g_img, SND_MEMORY | SND_NOSTOP | SND_NODEFAULT) == PS_SYNC_VALID_EXPECT());
-    CHECK(!U(PlaySoundW)(L"i7ps_busy_missing", NULL, SND_ASYNC | SND_NOSTOP | SND_NODEFAULT));
+    CHECK(U(PlaySoundW)(L"i7ps_busy_missing", NULL, SND_ASYNC | SND_NOSTOP | SND_NODEFAULT));
+    ps_quiesce();
+    CHECK(!U(PlaySoundW)(L"i7ps_busy_missing", NULL, SND_NOSTOP | SND_NODEFAULT));
     ps_stop();
 }
 

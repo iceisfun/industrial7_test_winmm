@@ -11,7 +11,9 @@
  *      NULL stops (TRUE), a non-RIFF image fails soundInitWavHdr (FALSE).
  *   5. Name: SND_ALIAS_ID loads a winmm string; an empty name returns TRUE at once; alias lookup, then the file
  *      search unless SND_SYSTEM. A rooted path that does not exist gets ".WAV" appended and is handed on (async
- *      posts -> TRUE); a relative name that SearchPath and MediaPath cannot find -> FALSE under SND_NODEFAULT.
+ *      posts -> TRUE). A relative name that is not found falls through the MediaPath step (on Win10 the
+ *      RegGetValueW of MediaPath fails, which skips the NODEFAULT exit) and is posted too [VM]: every missing name
+ *      without the MEMORY bit is TRUE when ASYNC and FALSE when sync (soundLoadFile fails under NODEFAULT).
  * VM_TIMEOUT: 180 */
 
 enum { C_NULL, C_EMPTY, C_MISSREL, C_MISSROOT, C_N };
@@ -31,7 +33,7 @@ static BOOL expect_row(int c, DWORD f) {
     switch (c) {
     case C_NULL:     return (f & SND_RESOURCE) != SND_RESOURCE;  /* FindResourceW(hmod, NULL, ..) finds nothing */
     case C_EMPTY:    return !(f & SND_MEMORY);
-    case C_MISSREL:  return !(f & SND_MEMORY) && (f & SND_SYSTEM) && (f & SND_ASYNC);
+    case C_MISSREL:  return !(f & SND_MEMORY) && (f & SND_ASYNC);   /* [VM] posted: the MediaPath step falls through */
     case C_MISSROOT: return !(f & SND_MEMORY) && (f & SND_ASYNC);
     }
     return -1;
@@ -256,22 +258,24 @@ PTEST(empty_name_any_hmod) {
     ps_stop();
 }
 
-/* Missing relative names fail even when async: the alias/file search runs on the caller's thread. */
-PTEST(missing_relative_async_fails_synchronously) {
+/* Missing relative names: async posts them (the lookup misses fall through to the play thread, which fails quietly
+ * under NODEFAULT); sync fails. SND_SYSTEM skips the lookup and gives the same answers. */
+PTEST(missing_relative_async_posted_sync_fails) {
     REQUIRE(ps_have_all()); ps_quiesce();
     static const WCHAR *names[] = { L"i7ps_nothing_a", L"i7ps_nothing_b.wav", L"i7ps nothing with spaces",
         L"i7ps_nothing.WAV", L".\\i7ps_nothing_c", L"i7ps_sub\\nothing", L"i7ps_nothing_d.", L"i7ps_nothing_e.mp3" };
     for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
         for (int ep = 0; ep < EP_N; ep++) {
-            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
-            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_FILENAME | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
-            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_ALIAS | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
-            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
-            /* SND_SYSTEM skips the file search: async posts the name and returns TRUE */
+            CHECKF(ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
+            CHECKF(ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_FILENAME | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
+            CHECKF(ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_ALIAS | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
             CHECKF(ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_SYSTEM | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
+            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
+            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_FILENAME | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
+            CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ALIAS | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
             CHECKF(!ps_call(ep, PSZ_WIDE, names[i], NULL, SND_SYSTEM | SND_NODEFAULT), "%s %ls", ps_ep_name[ep], names[i]);
         }
-    ps_stop();
+    ps_quiesce();
 }
 
 /* A rooted path is not checked for existence before an async post. */

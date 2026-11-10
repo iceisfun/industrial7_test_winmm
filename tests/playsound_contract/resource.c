@@ -26,6 +26,7 @@ static int build_copy(void) {
     WCHAR self[MAX_PATH]; MultiByteToWideChar(CP_ACP, 0, t_self_path(), -1, self, MAX_PATH);
     ps_pathW(g_copy, MAX_PATH, L"i7psres.exe");
     if (!CopyFileW(self, g_copy, FALSE)) { t_note("CopyFile %lu", GetLastError()); return 0; }
+    SetFileAttributesW(g_copy, FILE_ATTRIBUTE_NORMAL);   /* the payload is a read-only CD: the copy inherits READONLY */
     HANDLE u = BeginUpdateResourceW(g_copy, FALSE);
     if (!u) { t_note("BeginUpdateResource %lu", GetLastError()); return 0; }
     static BYTE silent[4096], badfmt[4096], junk[256], st[8192];

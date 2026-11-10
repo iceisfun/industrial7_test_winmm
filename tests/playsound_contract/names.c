@@ -73,7 +73,7 @@ PTEST(alias_id_unknown_fails) {
 
 /* ---- alias names ------------------------------------------------------------------------------------------------ */
 
-PTEST(alias_unknown_names_fail) {
+PTEST(alias_unknown_names) {
     REQUIRE(ps_have_all()); ps_quiesce(); ps_sweep_begin();
     static const WCHAR *names[] = { L"i7ps_unknown_event", L"I7PS_UNKNOWN_EVENT_2", L"i7ps.unknown.event",
         L"i7ps unknown event", L"i7ps_unknown_\x00e9v\x00e9nement", L".i7psDefault", L"i7psSystemHand" };
@@ -84,7 +84,8 @@ PTEST(alias_unknown_names_fail) {
         for (size_t j = 0; j < sizeof fl / sizeof fl[0]; j++)
             for (int ep = 0; ep < EP_N; ep++) {
                 BOOL got = ps_call(ep, PSZ_WIDE, names[i], NULL, fl[j] | SND_NODEFAULT);
-                PS_EXPECT(!got, "%s %ls f=0x%lx got %d", ps_ep_name[ep], names[i], fl[j] | SND_NODEFAULT, got);
+                BOOL want = (fl[j] & SND_ASYNC) != 0;   /* unknown alias -> file lookup miss -> posted [VM]; sync FALSE */
+                PS_EXPECT(!!got == want, "%s %ls f=0x%lx got %d want %d", ps_ep_name[ep], names[i], fl[j] | SND_NODEFAULT, got, want);
             }
     PS_SWEEP_END(); ps_stop();
 }
@@ -109,8 +110,8 @@ static void rooted_name(WCHAR *out, int len) {
     wcscpy(out + len - 4, L".wav");
 }
 
-/* Async rooted missing paths are posted while path + ".WAV" fits in the 256-WCHAR buffer (len <= 251); from 252
- * the extension no longer fits, the file search runs and fails; from 256 the copy (and the ANSI conversion) fails. */
+/* Async missing paths are posted up to 255 characters (for 252..255 ".WAV" no longer fits, the search runs, misses and
+ * falls through to the post as for relative names [VM]); from 256 the copy (and the ANSI conversion) fails -> FALSE. */
 PTEST(rooted_length_boundary_async) {
     REQUIRE(ps_have_all()); ps_quiesce(); ps_sweep_begin();
     static const int lens[] = { 30, 100, 200, 240, 248, 249, 250, 251, 252, 253, 254, 255, 256, 257, 259, 260, 261, 300, 511, 1000 };
@@ -120,7 +121,7 @@ PTEST(rooted_length_boundary_async) {
             rooted_name(name, lens[i]);
             if ((int)wcslen(name) != lens[i]) { t_skip("name build"); return; }
             BOOL got = ps_call(ep, PSZ_WIDE, name, NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
-            PS_EXPECT(!!got == (lens[i] <= 251), "%s len %d got %d want %d", ps_ep_name[ep], lens[i], got, lens[i] <= 251);
+            PS_EXPECT(!!got == (lens[i] <= 255), "%s len %d got %d want %d", ps_ep_name[ep], lens[i], got, lens[i] <= 255);
             got = ps_call(ep, PSZ_WIDE, name, NULL, SND_FILENAME | SND_NODEFAULT);
             PS_EXPECT(!got, "%s len %d sync got %d", ps_ep_name[ep], lens[i], got);
         }
@@ -136,26 +137,28 @@ PTEST(rooted_length_boundary_alias_async) {
         for (int ep = 0; ep < EP_N; ep++) {
             rooted_name(name, lens[i]);
             BOOL got = ps_call(ep, PSZ_WIDE, name, NULL, SND_ASYNC | SND_NODEFAULT);
-            PS_EXPECT(!!got == (lens[i] <= 251), "%s len %d got %d", ps_ep_name[ep], lens[i], got);
+            PS_EXPECT(!!got == (lens[i] <= 255), "%s len %d got %d", ps_ep_name[ep], lens[i], got);
             got = ps_call(ep, PSZ_WIDE, name, NULL, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
-            PS_EXPECT(!!got == (lens[i] <= 251), "%s alias len %d got %d", ps_ep_name[ep], lens[i], got);
+            PS_EXPECT(!!got == (lens[i] <= 255), "%s alias len %d got %d", ps_ep_name[ep], lens[i], got);
         }
     PS_SWEEP_END(); ps_stop();
 }
 
-/* Long relative names never resolve. */
-PTEST(relative_long_names_fail) {
+/* Relative names: posted up to 255 characters, rejected from 256 (copy into the 256-WCHAR buffer fails). */
+PTEST(relative_name_length_limit) {
     REQUIRE(ps_have_all()); ps_quiesce(); ps_sweep_begin();
-    static const int lens[] = { 200, 255, 256, 260, 300, 1000 };
+    static const int lens[] = { 200, 254, 255, 256, 257, 260, 300, 1000 };
     static WCHAR name[1100];
     for (size_t i = 0; i < sizeof lens / sizeof lens[0]; i++)
         for (int ep = 0; ep < EP_N; ep++) {
             for (int k = 0; k < lens[i]; k++) name[k] = L'q';
             memcpy(name, L"i7ps", 8); name[lens[i]] = 0;
             BOOL got = ps_call(ep, PSZ_WIDE, name, NULL, SND_ASYNC | SND_NODEFAULT);
-            PS_EXPECT(!got, "%s len %d got %d", ps_ep_name[ep], lens[i], got);
+            PS_EXPECT(!!got == (lens[i] <= 255), "%s len %d got %d", ps_ep_name[ep], lens[i], got);
             got = ps_call(ep, PSZ_WIDE, name, NULL, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
-            PS_EXPECT(!got, "%s alias len %d got %d", ps_ep_name[ep], lens[i], got);
+            PS_EXPECT(!!got == (lens[i] <= 255), "%s alias len %d got %d", ps_ep_name[ep], lens[i], got);
+            got = ps_call(ep, PSZ_WIDE, name, NULL, SND_ALIAS | SND_NODEFAULT);
+            PS_EXPECT(!got, "%s sync len %d got %d", ps_ep_name[ep], lens[i], got);
         }
     PS_SWEEP_END(); ps_stop();
 }
@@ -213,25 +216,30 @@ static int enter_tmp(void) {
 }
 static void leave_tmp(void) { if (g_oldcwd[0]) SetCurrentDirectoryW(g_oldcwd); g_oldcwd[0] = 0; }
 
-/* Relative names resolve against the current directory before any search path: existence decides an async call. */
-PTEST(relative_async_existence_table) {
+/* Relative names resolve against the current directory, then SearchPath with ".WAV". Async posts every name (found or
+ * not) [VM]; sync plays only a found, well-formed file, and only with a device. */
+PTEST(relative_existence_table) {
     REQUIRE(ps_have_all()); ps_quiesce();
     if (!enter_tmp()) { t_skip("scratch files"); return; }
     ps_sweep_begin();
     static const struct { const WCHAR *n; BOOL ok; } rows[] = {
         { L"i7ps_ok.wav", TRUE }, { L"i7ps_ok", TRUE }, { L"I7PS_OK.WAV", TRUE }, { L"i7ps_noext", TRUE },
-        { L"i7ps_other", TRUE }, { L"i7ps_other.wav", TRUE }, { L".\\i7ps_ok.wav", TRUE }, { L"i7ps_junk.wav", TRUE },
-        { L"i7ps_empty.wav", TRUE }, { L"i7ps_badfmt", TRUE }, { L"i7ps_dir.wav", TRUE },
+        { L"i7ps_other", TRUE }, { L"i7ps_other.wav", TRUE }, { L".\\i7ps_ok.wav", TRUE }, { L"i7ps_junk.wav", FALSE },
+        { L"i7ps_empty.wav", FALSE }, { L"i7ps_badfmt", FALSE },
         { L"i7ps_missing.wav", FALSE }, { L"i7ps_missing", FALSE }, { L"i7ps_noext.wav", FALSE }, { L"i7ps_ok.wav.wav", FALSE },
-        { L"i7ps_o", FALSE }, { L"i7ps_ok.wa", FALSE },
+        { L"i7ps_o", FALSE }, { L"i7ps_ok.wa", FALSE }, { L"i7ps_junk", FALSE /* found but unplayable */ }, { L"i7ps_dir.wav", FALSE },
     };
     static const DWORD fl[] = { SND_FILENAME | SND_ASYNC, SND_ASYNC, SND_ALIAS | SND_ASYNC, SND_ALIAS | SND_APPLICATION | SND_ASYNC };
     for (size_t r = 0; r < sizeof rows / sizeof rows[0]; r++)
         for (size_t j = 0; j < sizeof fl / sizeof fl[0]; j++)
             for (int ep = 0; ep < EP_N; ep++) {
                 BOOL got = ps_call(ep, PSZ_WIDE, rows[r].n, NULL, fl[j] | SND_NODEFAULT);
-                PS_EXPECT(!!got == rows[r].ok, "%s %ls f=0x%lx got %d want %d", ps_ep_name[ep], rows[r].n, fl[j], got, rows[r].ok);
+                PS_EXPECT(got, "%s %ls f=0x%lx async got %d", ps_ep_name[ep], rows[r].n, fl[j], got);
                 ps_stop();
+                if (ep != EP_W && ep != EP_A) continue;
+                BOOL want = rows[r].ok ? PS_SYNC_VALID_EXPECT() : FALSE;
+                got = ps_call(ep, PSZ_WIDE, rows[r].n, NULL, (fl[j] & ~SND_ASYNC) | SND_NODEFAULT);
+                PS_EXPECT(!!got == !!want, "%s %ls f=0x%lx sync got %d want %d", ps_ep_name[ep], rows[r].n, fl[j] & ~SND_ASYNC, got, want);
             }
     PS_SWEEP_END(); ps_quiesce(); leave_tmp();
 }
@@ -330,10 +338,13 @@ PTEST(ansi_conversion_cp1252) {
     CHECK(U(PlaySoundW)(L"i7ps_\x00e9t\x00e9.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
     CHECK(U(PlaySoundA)("i7ps_\xe9t\xe9.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
     CHECK(U(sndPlaySoundA)("i7ps_\xe9t\xe9", SND_ASYNC | SND_NODEFAULT));
-    CHECK(!U(PlaySoundA)("i7ps_\xe8t\xe8.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
+    CHECK(U(PlaySoundA)("i7ps_\xe8t\xe8.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));   /* misses are posted too */
+    CHECK(!U(PlaySoundA)("i7ps_\xe8t\xe8.wav", NULL, SND_FILENAME | SND_NODEFAULT));
     CHECK(U(PlaySoundW)(L"i7ps_\x4e2d\x6587.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
-    CHECK(!U(PlaySoundA)("i7ps_??.wav", NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
     ps_quiesce();
+    CHECK(!!U(PlaySoundW)(L"i7ps_\x4e2d\x6587.wav", NULL, SND_FILENAME | SND_NODEFAULT) == PS_SYNC_VALID_EXPECT());
+    CHECK(!U(PlaySoundA)("i7ps_??.wav", NULL, SND_FILENAME | SND_NODEFAULT));
+    CHECK(!!U(sndPlaySoundA)("i7ps_\xe9t\xe9", SND_NODEFAULT) == PS_SYNC_VALID_EXPECT());
     CHECK(!!U(PlaySoundA)("i7ps_\xe9t\xe9.wav", NULL, SND_FILENAME | SND_NODEFAULT) == PS_SYNC_VALID_EXPECT());
     ps_stop(); leave_tmp();
 }
