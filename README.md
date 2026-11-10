@@ -17,4 +17,8 @@ exit code 1 if any test failed. `NOTE` lines record observed, version-dependent 
 Tests that need a second process re-launch the exe (`--child <name>`). Scratch files live in
 `%TEMP%\winmmt_<pid>\` and are removed on exit. `tools/*_exports.txt` list the named exports.
 
+Win10 VM (the oracle): `tools/vm_run.sh AREA[,AREA] [--audio hda|noaudio|...]`, `tools/vm_matrix.sh` (every area
+in the default `hda` and the `noaudio` configuration), `tools/wav_capture.sh` (host check of played tones). See
+`docs/VM_RUN.md` and `docs/VM_AUDIO.md`. Every area must pass with and without audio devices.
+
 See `HANDOFF.md` (when present) for how to run and triage the Windows passes.
