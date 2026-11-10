@@ -136,12 +136,14 @@ PTEST(resource_name_without_resource_flag) {
     REQUIRE(U(PlaySoundW)); ps_quiesce();
     HMODULE h = load_copy();
     if (!h) { t_skip("resource copy unavailable"); return; }
-    CHECK(!U(PlaySoundW)(L"I7SILENT", h, SND_ASYNC | SND_NODEFAULT));
-    CHECK(!U(PlaySoundW)(L"I7SILENT", h, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
-    CHECK(!U(PlaySoundW)(L"I7SILENT", h, SND_ALIAS | SND_ASYNC | SND_NODEFAULT));
-    CHECK(!U(PlaySoundW)(L"I7SILENT", h, 0x40000 | SND_ASYNC | SND_NODEFAULT));
+    /* Win10 22H2 oracle, no audio device: an ASYNC request with a name that cannot resolve is ACCEPTED (TRUE: the name is looked up
+     * on the worker thread), so these are records, not expectations; only the synchronous calls decide at the call. */
+    t_note("async bare name: %d", !!U(PlaySoundW)(L"I7SILENT", h, SND_ASYNC | SND_NODEFAULT));
+    t_note("async FILENAME: %d", !!U(PlaySoundW)(L"I7SILENT", h, SND_FILENAME | SND_ASYNC | SND_NODEFAULT));
+    t_note("async ALIAS: %d", !!U(PlaySoundW)(L"I7SILENT", h, SND_ALIAS | SND_ASYNC | SND_NODEFAULT));
+    t_note("async 0x40000: %d", !!U(PlaySoundW)(L"I7SILENT", h, 0x40000 | SND_ASYNC | SND_NODEFAULT));
     static WCHAR padded[64] = L"I7SILENT";
-    CHECK(!U(PlaySoundW)(padded, h, SND_MEMORY | SND_ASYNC | SND_NODEFAULT));
+    t_note("async MEMORY: %d", !!U(PlaySoundW)(padded, h, SND_MEMORY | SND_ASYNC | SND_NODEFAULT));
     CHECK(!U(PlaySoundW)(padded, h, SND_MEMORY | SND_NODEFAULT));
     ps_stop();
     FreeLibrary(h);

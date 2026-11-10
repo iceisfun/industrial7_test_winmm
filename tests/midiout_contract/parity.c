@@ -76,7 +76,8 @@ TEST(midiout_contract_parity_caps_bytes) {
     for (int k = 0; k < 2; k++) {
         UINT id = k ? MIDI_MAPPER : 0;
         MIDIOUTCAPS2A a1, a2; MIDIOUTCAPS2W w1, w2;
-        memset(&a1, 0, sizeof(a1)); memset(&a2, 0x11, sizeof(a2)); memset(&w1, 0, sizeof(w1)); memset(&w2, 0x11, sizeof(w2));
+        /* the same fill in both: bytes past the name's NUL are left as the caller had them (Win10 22H2 oracle: a 0 vs 0x11 fill differed) */
+        memset(&a1, 0x11, sizeof(a1)); memset(&a2, 0x11, sizeof(a2)); memset(&w1, 0x11, sizeof(w1)); memset(&w2, 0x11, sizeof(w2));
         REQUIRE(P(mods[0], midiOutGetDevCapsA)); REQUIRE(P(mods[1], midiOutGetDevCapsA));
         EXPECT_EQ(P(mods[0], midiOutGetDevCapsA)(id, (MIDIOUTCAPSA *)&a1, sizeof(a1)), MMSYSERR_NOERROR);
         EXPECT_EQ(P(mods[1], midiOutGetDevCapsA)(id, (MIDIOUTCAPSA *)&a2, sizeof(a2)), MMSYSERR_NOERROR);
