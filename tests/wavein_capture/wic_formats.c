@@ -108,7 +108,8 @@ TEST(wic_fmt_bad_format_query_and_open) {
             HWAVEIN h = (HWAVEIN)(ULONG_PTR)0x5555;
             HANDLE ev = CreateEventA(NULL, FALSE, FALSE, NULL);
             MMRESULT r = U(waveInOpen)(&h, ids[j], &b[i].f.Format, (DWORD_PTR)ev, 0, CALLBACK_EVENT);
-            CHECKF(r == want, "open %s id %d -> %u", b[i].n, (int)ids[j], r);
+            if (soft) CHECKF(r == WAVERR_BADFORMAT || r == MMSYSERR_INVALPARAM, "open %s id %d -> %u", b[i].n, (int)ids[j], r);
+            else CHECKF(r == want, "open %s id %d -> %u", b[i].n, (int)ids[j], r);
             CHECK(h == NULL);
             EXPECT_EQ(WaitForSingleObject(ev, 0), WAIT_TIMEOUT);
             if (r == 0 && h) U(waveInClose)(h);

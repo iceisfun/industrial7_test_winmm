@@ -43,11 +43,13 @@ TEST(midiout_device_long_gs_reset_protocol) {
         t_note("id 0x%x flags right after LongMsg 0x%lx", g_ids[ii_], f_ret);
         CHECK(f_ret & MHDR_PREPARED);
         CHECKF(mod_wait_done(&m, 2000), "id 0x%x flags 0x%lx", g_ids[ii_], m.dwFlags);
-        /* DONE can be set a moment before INQUEUE clears: wait for DONE without INQUEUE */
+        /* DONE can be set a moment before INQUEUE clears: wait for DONE without INQUEUE (bounded). On Win10 22H2 with the Microsoft GS Wavetable
+         * Synth MHDR_INQUEUE can stay set after DONE (flags 0x23, then 0x21 after the unprepare): INQUEUE is recorded, not required clear. */
         for (int w = 0; w < 200 && (m.dwFlags & (MHDR_DONE | MHDR_INQUEUE)) != MHDR_DONE; w++) Sleep(10);
-        EXPECT_EQ(m.dwFlags, MHDR_PREPARED | MHDR_DONE);
+        t_note("id 0x%x flags once DONE: 0x%lx (INQUEUE %s)", g_ids[ii_], m.dwFlags, (m.dwFlags & MHDR_INQUEUE) ? "still set" : "clear");
+        EXPECT_EQ(m.dwFlags & ~MHDR_INQUEUE, MHDR_PREPARED | MHDR_DONE);
         EXPECT_EQ(UH(h, &m), MMSYSERR_NOERROR);
-        EXPECT_EQ(m.dwFlags, MHDR_DONE);
+        EXPECT_EQ(m.dwFlags & ~MHDR_INQUEUE, MHDR_DONE);
         /* the caller's fields are untouched */
         EXPECT_EQ(m.dwUser, 0x1234ABCD);
         EXPECT_EQ(m.dwOffset, 0xDEAD);

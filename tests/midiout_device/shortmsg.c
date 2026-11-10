@@ -213,7 +213,9 @@ TEST(midiout_device_short_data_only) {
         for (int i = 0; i < NELEM(m); i++) {
             MMRESULT r = sm(h, m[i]);
             t_note("id 0x%x data-only 0x%06lx -> %u", g_ids[ii_], m[i], r);
-            CHECKF(r == MMSYSERR_NOERROR, "id 0x%x msg 0x%lx r=%u", g_ids[ii_], m[i], r);
+            /* Win10 22H2 (emulated HDA, Microsoft GS Wavetable Synth): the MIDI mapper answers MMSYSERR_ERROR (1) for the all-zero message */
+            if (m[i] == 0 && g_ids[ii_] == MIDI_MAPPER) CHECKF(r == MMSYSERR_NOERROR || r == MMSYSERR_ERROR, "id 0x%x msg 0x%lx r=%u", g_ids[ii_], m[i], r);
+            else CHECKF(r == MMSYSERR_NOERROR, "id 0x%x msg 0x%lx r=%u", g_ids[ii_], m[i], r);
         }
     }
 }
