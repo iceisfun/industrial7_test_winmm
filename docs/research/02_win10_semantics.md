@@ -613,3 +613,109 @@ is answered by winmmbase, not the driver.
    NULL to mciSendString.
 10. Every **[inference]/[VM]** item above needs one VM boot to observe before a
     hard CHECK.
+
+## Verification (adversarial fact-check)
+
+Method: re-fetched the decompilation (and asm where noted) of every function
+cited above from the reference corpus API and compared each claim against the
+code. A VM probe covering the environment-independent claims was written
+(`tools/proto/fc02probe.c`: ~250 checks across wave/midi/mixer/aux/time/mmio/
+PlaySound/MCI/joystick, run with and without a virtual HDA device), but the
+shared Win10 oracle lock was saturated by other corpora for the whole
+fact-check window, so **no item in this document has been observed on the VM
+yet**. Everything below is decomp-level confirmation only; the **[VM]** and
+**[inference]** markers above remain in force, and hard CHECKs should wait for
+a probe run (`tools/proto/fc02probe.exe`, payload `run.cmd` = run it `> COM1`).
+
+Confirmed against the decomp (no change needed):
+* Module layout: winmm!waveOutOpen (0xa820) and winmm!timeGetTime (0x3190)
+  are single `jmp [IAT]` stubs; mmsystemGetVersion returns 0x30A.
+* waveOutOpen validation order (pwfx NULL / bad CALLBACK_WINDOW -> 11,
+  0xFFFF -> mapper, masks 0x7E04 / 0x7E10 -> 10, phwo NULL -> 11 unless
+  QUERY, `*phwo = NULL`, then 0 devices -> 2). waveInOpen same shape.
+* ValidateHandle (> 0xFFFF, not -1 / 0xFFFFFFFF, VA range, on pHandleList,
+  type at handle-0x48).
+* WAVEHDR ladder for Prepare/Unprepare/Write/AddBuffer, including
+  Prepare(already prepared) -> 0 without a handle check and the 8 -> success
+  mapping. Unprepare additionally maps a driver 6 to 0 only on a "device
+  gone" handle.
+* Error text: wave valid 0..21 and 32..35, midi valid 0..21 and 64..71,
+  cch 0 -> 0, NULL -> 11, cch 1 -> 0 with empty string, else 9. Note: a valid
+  code whose string resource is missing also returns 9.
+* GetDevCaps cb 0 -> 0 before the NULL check (wave W/A, midiOut, mixer, aux);
+  waveOutGetDevCapsA copies min(cb, 100).
+* DriverCallback dispatch (1 PostMessageA, 2 PostThreadMessageA +
+  mmTaskSignal, 3 direct call, 5 SetEvent, NULL target -> no callback, other
+  types -> FALSE). It also forwards MIM_DATA (0x3C3) through a MIDI-thru
+  handle when one is attached.
+* midiOutOpen order and masks, midiOutLongMsg ladder (64 / 65 / len 0 -> 11 /
+  5 / stream -> 8), midiOutShortMsg, midiStreamOpen (cMidi != 1 -> 11,
+  0xFFFFFFFE -> 2), midiStreamOut (handle first), midiStreamProperty.
+* mixerOpen (CALLBACK_FUNCTION -> 10, mask 0x0FF8FFFF), mixerGetLineInfoW
+  (flags, NULL, cbStruct < 0x11C, query ranges, normalization),
+  mixerGetControlDetailsW size rules, IMixerGetID (flags & 0x0FFFFFFF -> 10).
+* kernel32 time: timeGetDevCaps (97, wPeriodMax 1000000), timeBeginPeriod /
+  timeEndPeriod per-period 16-bit counts and the >= uMax no-op,
+  timeGetSystemTime (129).
+* timeSetEvent flag mask 0xFFFFFE0E, delay range, 16 slots, generation ids
+  (16-bit counter stepping 0x10, id = generation + slot), timeKillEvent
+  unknown id -> 97.
+* mmio: mmioOpen invalid flags -> NULL without touching wErrorRet, 0x24300
+  -> (HMMIO)1, mmioSeek unknown origin -> 0, mmioDescend (flags mask
+  0xFFFFFF8F -> 10, NULL ckinfo -> 11, NULL hmmio -> 258, MThd/MTrk swap,
+  not found 265, seek failure 263), mmioStringToFOURCCA space padding,
+  mmioInstallIOProcW mask.
+* PlaySound flag mask 0xFF80DF20, SND_NOSTOP while playing -> FALSE,
+  ASYNC|MEMORY RIFF/WAVE check, NODEFAULT not-found -> FALSE.
+* mciSendString(NULL): asm confirms `wcslen` of the command at winmm
+  0x18000bbaf before the NULL test at 0x18000bbcf (a NULL that survived would
+  return 267 MISSING_COMMAND_STRING, but the scan faults first).
+* mciGetErrorStringW: NULL -> FALSE; high word with an unknown device id ->
+  text of 0x116.
+* Joystick: joyGetNumDevs 16; joyGetDevCapsW (NULL 11, size 0x2D8/0x308 else
+  165, id -1 -> 0 + szRegKey, id >= 16 -> 6); joyGetPosEx (size < 52 -> 165);
+  joyGet/SetThreshold 11; joySetCapture / joyReleaseCapture codes.
+* AudioSrv wait (2 s polls, 120 s cap, exit code 1077 + auto start keeps
+  waiting) and WaveMapperInit (only when wave in+out count != 0).
+
+Corrected in place (marked **[fact-check correction]** / **[fact-check
+addition]** above):
+1. midiInOpen with CALLBACK_WINDOW and a non-window returns **11**, not 7.
+2. midiOutOpen(MIDI_MAPPER) with zero MIDI devices returns **2**, not 6
+   (MidiMapperInit needs a nonzero MIDI in+out count; with no driver flagged
+   as mapper midiReferenceDriverById fails with 2). The 6 path needs a mapper
+   entry with a NULL driver proc. Same wording fix for the waveOutOpen
+   "no mapper driver" step.
+3. PlaySound with an empty name returns TRUE but the decomp shows no stop of
+   the current sound (early return before sndMessage). NULL does stop it.
+4. PlaySound ASYNC|MEMORY images of 2 MiB or more are not rejected; they are
+   played from the caller's buffer without a copy.
+5. TDD_MAXRESOLUTION rounding is (min + 9900)/10000 (10 when the query
+   fails); uMax falls back to 55 also when the max resolution is >= 55 ms.
+6. timeKillEvent(0) can match a free slot and return 0 (and release a stale
+   period) once the timer thread exists. Tests must use a nonzero unknown id.
+7. DefDriverProc also returns 1 for DRV_INSTALL / DRV_REMOVE and 0 for
+   DRV_OPEN / DRV_CLOSE / DRV_CONFIGURE.
+8. midiOutPrepareHeader on a stream handle requires cbmh >= 0x70.
+9. waveOutClose on a "device gone" handle frees it and returns 0.
+
+New finding, still UNVERIFIED on the VM:
+* `mmioSeek(h, lOffset, SEEK_END)` computes **end - lOffset** (asm
+  `sub ebx, esi` at winmmbase 0x180001f10), i.e. a positive offset moves
+  backwards from the end. This contradicts the usual "offset from the end"
+  reading; the probe records `mmio_seek_end4` / `mmio_seek_endm4` on a
+  26-byte memory file (expect 22 / 30-> -1 if this reading is right).
+
+UNVERIFIED (decomp-consistent but behaviour depends on the driver, the
+registry or the environment; observe with the probe before any CHECK):
+* Everything about wdmaud.drv (format validation, WAVERR_BADFORMAT, callback
+  ordering, close with queued buffers, pitch/rate support, zero-length writes,
+  unknown CALLBACK_* types).
+* Device counts on the headless VM (wave/midi/mixer/aux) with and without the
+  HDA device, the GS Wavetable Synth, joystick results.
+* Whether `open new type waveaudio alias x` succeeds with zero wave devices,
+  `sysinfo all quantity`, and which MCI error a bare `play` / `status all
+  mode` gives (292 / 279 are read from the parser, not observed).
+* timeSetEvent with a NULL function callback (decomp says accepted and
+  skipped).
+* That every code in the valid error-text ranges has a string resource.
