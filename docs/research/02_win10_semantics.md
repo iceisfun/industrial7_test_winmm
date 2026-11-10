@@ -766,3 +766,78 @@ registry or the environment; observe with the probe before any CHECK):
 * timeSetEvent with a NULL function callback (decomp says accepted and
   skipped).
 * That every code in the valid error-text ranges has a string resource.
+
+## Verification, pass 2 (second adversarial fact-check)
+
+Method: re-fetched from the reference corpus API and re-read the decomp of
+winmmbase `waveOutOpen`, `waveOutGetDevCapsW/A`, `waveOutGetID`,
+`waveOutGetVolume`, `waveInGetErrorTextW/A` (+ `waveGetErrorTextW`),
+`midiOutOpen`, `midiInOpen`, `mixerOpen`, `mmioSeek`; kernel32
+`timeGetDevCaps`, `timeBeginPeriod`; winmm `mciSendStringW/A`,
+`AllocUnicodeStr` and the `mciSendStringInternal` asm. Also read the VM serial
+logs of the earlier audio probe (`tools/proto/audprobe.c`) under
+`~/w10lab/runs/winmm-audio-r1/hda-duplex-wav` (QEMU intel-hda + hda-duplex)
+and `~/w10lab/runs/winmm-audio-r2/noaudio` (no audio device), both Win10
+19045.2965. Those runs (2026-11-09 18:16 / 18:25) predate pass 1's statement
+that nothing had been observed on the VM; their results are now folded into
+sections 1, 2.1, 2.4, 8 and 10 and marked **[VM]**.
+
+Confirmed again from the decomp: waveOutOpen ladder (pwfx NULL / bad window ->
+11, 0xFFFF -> mapper, 0x7E04 / 0x7E10 -> 10, phwo NULL -> 11 unless QUERY,
+`*phwo = NULL` before ClientUpdatePnpInfo, 0 devices -> 2, NewHandle failure ->
+7); caps cb 0 -> 0 before the NULL check; waveOutGetDevCapsA copies
+min(cb, 100); error text ranges 0..21 / 32..35 for both W and A, with cch 1 ->
+0 and empty string; midiOutOpen (phmo first, masks 0xBFF3 / 0x3FF3, window ->
+11, 0xFFFF not the mapper); midiInOpen (phmi NULL -> 11, masks 0xBFDA / 0x3FDA
+on the low 16 bits checked BEFORE the window, bad window -> 11); mixerOpen
+(phmx NULL -> 11, CALLBACK_FUNCTION -> 10, window -> 11, mask 0x0FF8FFFF ->
+10); kernel32 timeGetDevCaps (97, wPeriodMax 1000000) and timeBeginPeriod
+(< min -> 97, >= uMax -> 0 uncounted, 16-bit count, NtSetTimerResolution
+failure undoes the count -> 97); mmioSeek SEEK_END computes `end - lOffset`
+and an unknown origin -> 0; mciSendString NULL faults (asm 0x18000bbaf before
+0x18000bbcf, rcx still the command pointer on that path).
+
+Confirmed on the VM (audprobe):
+* Device counts: no audio `0/0/1/0/0/0/16`, HDA `1/1/1/0/2/0/16`
+  (waveOut/waveIn/midiOut/midiIn/mixer/aux/joy). joyGetNumDevs 16.
+* 0 devices: waveOutOpen(WAVE_MAPPER) and (0) -> 2; waveInOpen(WAVE_MAPPER)
+  -> 2; every WAVE_FORMAT_QUERY -> 2; waveOut/waveIn/mixer/aux caps for -1
+  and 0 -> 2; synchronous SND_MEMORY PlaySound -> FALSE.
+* aux count 0 and auxGetDevCaps / auxGetVolume -> 2 with and without HDA.
+* midiOutGetDevCaps(MIDI_MAPPER) -> 0 "Microsoft MIDI Mapper"; GS Wavetable
+  Synth present even without audio.
+* joyGetDevCaps(0) and joyGetPosEx(0) -> 165.
+* Header flags through Prepare/Write/completion: 0x2 -> 0x12 -> 0x3.
+
+Corrected or added in pass 2 (marked **[fact-check pass 2]** / **[VM]**):
+1. waveOutGetID / midiOutGetID on a handle opened through the mapper
+   returns **0xFFFFFFFF**, not the device the mapper resolved (decomp +
+   VM). Section 2.4 previously said "the id the open resolved".
+2. The waveOutOpen "WAVE_MAPPED -> preferred device (0x805)" sub-branch is
+   unreachable: it needs `uDeviceID == WAVE_MAPPER` with bit 4, which the
+   0x7E04 mask already rejects with 10.
+3. midiOutOpen(MIDI_MAPPER) with no audio endpoint (synth present) returns
+   **1 (MMSYSERR_ERROR)** on the VM. The 2 (no MIDI devices) and 6 paths
+   cannot be reached on this guest because midiOut is always >= 1.
+4. waveOutGetPosition with TIME_MS comes back as TIME_BYTES (wType 4):
+   the driver rewrites unsupported types (VM).
+5. Format query on the HDA guest: PCM 1/2 ch, 8..32 bit, 8..192 kHz -> 0
+   (mapper and id 0); 6 ch PCM -> 32; IEEE float stereo via the mapper -> 0.
+6. mciSendStringA(NULL) also faults (`AllocUnicodeStr` strlen without a NULL
+   check), not just the W form.
+7. Mixer count equals the endpoint count (one mixer per render and capture
+   endpoint). `mixerGetDevCaps(-1)` -> 2, so there is no mixer mapper.
+
+Probe caveat: audprobe printed `h=0000000000000001` after
+`waveOutOpen(&h, ...)` failed with 2, which seems to contradict `*phwo = NULL`.
+That print evaluates `h` in the same printf argument list as the call, and the
+argument evaluation order is unspecified, so the line does NOT disprove the
+decomp. `fc02probe` reads `h` in a separate statement (`wo_open_badid_h`).
+
+Still UNVERIFIED on the VM (the pass-2 `fc02probe` boot was queued behind
+the shared oracle lock; see the VM-run note below): everything in pass 1's
+UNVERIFIED list except the device counts / aux / joystick / synth items now
+confirmed above; the `mmioSeek(SEEK_END)` sign; the timeKillEvent(0)
+hazard; and all the hard error-code ladders that need no device (waveOutOpen
+flag masks, WAVEHDR ladder, mixer/mmio/MCI/joystick codes, which are
+decomp-confirmed twice).
