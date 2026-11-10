@@ -18,14 +18,14 @@ TEST(smoke_time_gettime_monotonic) {
 TEST(smoke_time_devcaps) {
     REQUIRE(U(timeGetDevCaps));
     TIMECAPS tc;
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
     EXPECT_EQ(U(timeGetDevCaps)(NULL, sizeof tc), TIMERR_NOCANDO);
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
     EXPECT_EQ(U(timeGetDevCaps)(&tc, sizeof tc - 1), TIMERR_NOCANDO);
     memset(&tc, 0xCC, sizeof tc);
     EXPECT_EQ(U(timeGetDevCaps)(&tc, sizeof tc), MMSYSERR_NOERROR);
     CHECKF(tc.wPeriodMin >= 1 && tc.wPeriodMin <= 16, "wPeriodMin %u", tc.wPeriodMin);
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
     EXPECT_EQ(tc.wPeriodMax, 1000000);
 }
 

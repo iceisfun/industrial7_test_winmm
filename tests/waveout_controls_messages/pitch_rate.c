@@ -25,7 +25,7 @@ static int ctl_table(ctl out[2])
 
 /* ---------------------------------------------------------------- exports */
 
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(wcm_pr_exports_resolve)
 {
     REQUIRE(U(waveOutGetPitch));

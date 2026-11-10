@@ -178,7 +178,7 @@ TEST(midiout_device_short_every_voice_status) {
 /* ================================================================ system and odd messages */
 
 /* system common / real-time status bytes in a short message: the driver accepts them [VM] */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_short_system_bytes) {
     MOD_NEED_LIVE();
     static const DWORD m[] = { 0xF1, 0x00F2, 0x00F3, 0xF4, 0xF5, 0xF6, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE };
@@ -191,7 +191,7 @@ TEST(midiout_device_short_system_bytes) {
 }
 
 /* 0xFF is "system reset" on the wire; 0xF0 / 0xF7 (sysex framing) in a short message */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_short_reset_and_sysex_status) {
     MOD_NEED_LIVE();
     static const DWORD m[] = { 0xFF, 0xF0, 0xF7, 0x7FF0, 0x00F7F0 };
@@ -205,7 +205,7 @@ TEST(midiout_device_short_reset_and_sysex_status) {
 }
 
 /* a data byte with no status (running status without a previous status) and the 0 message */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_short_data_only) {
     MOD_NEED_LIVE();
     static const DWORD m[] = { 0x40, 0x00, 0x7F, 0x0040, 0x147F40 };
@@ -219,7 +219,7 @@ TEST(midiout_device_short_data_only) {
 }
 
 /* running status: a note-on, then data-only messages continue it (velocity 0 = off) */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_short_running_status) {
     MOD_NEED_LIVE();
     FOR_IDS(h) {
@@ -232,7 +232,7 @@ TEST(midiout_device_short_running_status) {
 }
 
 /* the high byte of dwMsg is not part of a short message: garbage there changes nothing */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_short_high_byte_ignored) {
     MOD_NEED_LIVE();
     static const DWORD hi[] = { 0x01000000, 0x80000000, 0xFF000000 };

@@ -64,7 +64,7 @@ TEST(midiout_device_getid_stable) {
 }
 
 /* every flag value the open masks let through opens the synth (0x4, 0x8, 0x4000 are outside 0x3FF3/0xBFF3) */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_open_tolerated_flag_bits) {
     MOD_NEED_LIVE();
     static const DWORD extra[] = { 0, 0x4, 0x8, 0xC, 0x4000, 0x400C };

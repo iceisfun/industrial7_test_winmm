@@ -228,7 +228,7 @@ TEST(midiout_contract_cache_mmio_handle_5) {
 }
 
 /* the GS synth does not implement patch caching [expected NOTSUPPORTED] */
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_contract_cache_live_synth) {
     REQC(); REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
     HMIDIOUT h = moc_open_id(0);
@@ -247,7 +247,7 @@ TEST(midiout_contract_cache_live_synth) {
     moc_close(h);
 }
 
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_contract_cache_live_mapper) {
     REQC(); REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
     HMIDIOUT h = moc_open_id(MIDI_MAPPER);

@@ -186,7 +186,7 @@ TEST(wcm_vol_zero_devices_open_fails)
 
 /* ---------------------------------------------------------------- device ids */
 
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(wcm_vol_get_device_ids)
 {
     REQUIRE(U(waveOutGetVolume));

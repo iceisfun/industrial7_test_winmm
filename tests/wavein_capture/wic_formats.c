@@ -99,8 +99,12 @@ TEST(wic_fmt_bad_format_query_and_open) {
             /* [VM] the mapper answers BADFORMAT for everything; device 0 (wdmaud) rejects the malformed
              * channel layouts (6 ch PCM, EXTENSIBLE with cbSize 0) as INVALPARAM, an unknown tag as BADFORMAT */
             MMRESULT want = (ids[j] == WAVE_MAPPER || i == 0) ? WAVERR_BADFORMAT : MMSYSERR_INVALPARAM;
+            /* Win10 22H2 with an emulated HDA duplex device: the malformed channel layouts on device 0 answer WAVERR_BADFORMAT (32), where the
+             * first recording guest (wdmaud, real driver) answered INVALPARAM: both are the driver's, so device 0 accepts either */
+            int soft = (ids[j] != WAVE_MAPPER && i != 0);
             MMRESULT q = U(waveInOpen)(NULL, ids[j], &b[i].f.Format, 0, 0, WAVE_FORMAT_QUERY);
-            CHECKF(q == want, "query %s id %d -> %u", b[i].n, (int)ids[j], q);
+            if (soft) { CHECKF(q == WAVERR_BADFORMAT || q == MMSYSERR_INVALPARAM, "query %s id %d -> %u", b[i].n, (int)ids[j], q); want = q; }
+            else CHECKF(q == want, "query %s id %d -> %u", b[i].n, (int)ids[j], q);
             HWAVEIN h = (HWAVEIN)(ULONG_PTR)0x5555;
             HANDLE ev = CreateEventA(NULL, FALSE, FALSE, NULL);
             MMRESULT r = U(waveInOpen)(&h, ids[j], &b[i].f.Format, (DWORD_PTR)ev, 0, CALLBACK_EVENT);

@@ -199,7 +199,7 @@ TEST(midiout_device_volume_other_thread) {
 
 /* ================================================================ patch caching */
 
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_cache_patches_live) {
     MOD_NEED_LIVE(); REQUIRE(U(midiOutCachePatches)); REQUIRE(U(midiOutCacheDrumPatches));
     static const UINT fl[] = { MIDI_CACHE_ALL, MIDI_CACHE_BESTFIT, MIDI_CACHE_QUERY, MIDI_UNCACHE };
@@ -219,7 +219,7 @@ TEST(midiout_device_cache_patches_live) {
 
 /* ================================================================ midiOutMessage on a live handle */
 
-/* UNVERIFIED: pin after the first Win10 run */
+/* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
 TEST(midiout_device_message_handle) {
     MOD_NEED_LIVE(); REQUIRE(U(midiOutMessage));
     HMIDIOUT h = mod_open_null(0);
@@ -235,7 +235,7 @@ TEST(midiout_device_message_handle) {
     /* an unknown driver message */
     r = U(midiOutMessage)(h, 0x7FFF, 0, 0);
     t_note("midiOutMessage(0x7FFF) = %u", r);
-    /* UNVERIFIED: pin after the first Win10 run */
+    /* validated: Windows 10 22H2 19045.2965, no-audio and emulated-HDA runs */
     EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);
     DWORD sz = 0xA5A5A5A5;
     r = U(midiOutMessage)(h, DRV_QUERYFUNCTIONINSTANCEIDSIZE, (DWORD_PTR)&sz, 0);
