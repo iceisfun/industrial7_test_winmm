@@ -213,10 +213,23 @@ TEST(midiout_device_short_data_only) {
         for (int i = 0; i < NELEM(m); i++) {
             MMRESULT r = sm(h, m[i]);
             t_note("id 0x%x data-only 0x%06lx -> %u", g_ids[ii_], m[i], r);
-            /* Win10 22H2 (emulated HDA, Microsoft GS Wavetable Synth): the MIDI mapper answers MMSYSERR_ERROR (1) for the all-zero message */
+            /* Win10 22H2 (emulated HDA, Microsoft GS Wavetable Synth): the MIDI mapper answered MMSYSERR_ERROR (1) for the all-zero message in this
+             * sequence (no status sent before it on the handle); not a general rule: see the running-status probe below */
             if (m[i] == 0 && g_ids[ii_] == MIDI_MAPPER) CHECKF(r == MMSYSERR_NOERROR || r == MMSYSERR_ERROR, "id 0x%x msg 0x%lx r=%u", g_ids[ii_], m[i], r);
             else CHECKF(r == MMSYSERR_NOERROR, "id 0x%x msg 0x%lx r=%u", g_ids[ii_], m[i], r);
         }
+    }
+}
+
+/* PROBE (records only): the zero DWORD is DATA, not an invalid status, when a status was supplied earlier on the same handle (running status: the
+ * low byte is then the first data byte, bits 8-15 the second). The earlier short_data_only row sends 0 with whatever preceded it; this pair keeps the
+ * sequence explicit: Note Off 0x80 (channel 1, key 0, velocity 0) accepted, then 0x00000000 on the SAME handle, mapper and concrete device apart. */
+TEST(midiout_device_short_zero_after_noteoff_probe) {
+    MOD_NEED_LIVE();
+    FOR_IDS(h) {
+        MMRESULT r1 = sm(h, 0x00000080);
+        MMRESULT r2 = sm(h, 0x00000000);
+        t_note("id 0x%x: 0x80 -> %u, then 0x0 on the same handle -> %u", g_ids[ii_], r1, r2);
     }
 }
 
