@@ -144,7 +144,9 @@ Exact validation order:
    id; bits 0x0200..0x4000 are always invalid. WAVE_FORMAT_QUERY (1),
    WAVE_ALLOWSYNC (2), WAVE_FORMAT_DIRECT (8), 0x20/0x40/0x80/0x100/0x8000 pass
    this layer. The CALLBACK_TYPE field (0x70000) is not range-checked here
-   **[inference: wdmaud rejects unknown types; VM]**.
+   **[inference: wdmaud rejects unknown types; VM]**. **[VM pass 2]** with
+   WAVE_FORMAT_QUERY on the HDA guest a CALLBACK type of 7 (0x70000) -> **0**
+   (accepted: the query path does not look at the callback type).
 5. (pointer-wrap check on `pwfx` for non-PCM with cbSize; unreachable for
    valid pointers.)
 6. If not WAVE_FORMAT_QUERY: `phwo == NULL` -> **11**, else `*phwo = NULL`
@@ -174,7 +176,11 @@ with plain WAVE_FORMAT_PCM: 1 and 2 channels at 8/16/24/32 bits and every
 rate 8000..192000 -> **0**, both through WAVE_MAPPER and device 0; 6
 channels -> **32** on both; WAVE_FORMAT_IEEE_FLOAT 2ch/48 kHz/32-bit through
 the mapper -> 0. With 0 devices every query -> 2. (Do not CHECK the 24/32-bit
-PCM acceptance on other hardware; it comes from the shared-mode engine.) Through the mapper, msacm can convert PCM
+PCM acceptance on other hardware; it comes from the shared-mode engine.)
+**[VM pass 2]** A PCM 2ch/16-bit format with a wrong `nBlockAlign` (3 instead
+of 4) is **accepted (0)** by WAVE_FORMAT_QUERY through the mapper and through
+device 0: nBlockAlign/nAvgBytesPerSec consistency is NOT validated on the
+query path. Do not write a "bad block align -> 32" test. Through the mapper, msacm can convert PCM
 formats the endpoint does not natively take (so mapper accepts more than a
 direct id; WAVE_FORMAT_DIRECT disables ACM) **[VM]**.
 
@@ -263,12 +269,16 @@ cbwoc truncates the structure without error.
 
 `waveOutGetErrorTextW/A` (shared with waveIn; !0x10320 / !0x10340):
 `cchText == 0` -> **0**, buffer untouched; `pszText == NULL` -> **11**;
-otherwise `pszText[0] = 0`; codes 0..21 and 32..35 are valid, anything else
--> **9 (BADERRNUM)** (with empty string). `cchText == 1` -> **0** with an
+otherwise `pszText[0] = 0`; codes 0..21 and 32..35 pass the range check, anything else
+-> **9 (BADERRNUM)** (with empty string). **[fact-check pass 2, VM]** code 21
+(MMSYSERR_MOREDATA) has no string resource, so LoadString fails and it also
+returns **9**. Observed success set, W and A, wave: 0..20 and 32..35; midi:
+0..20 and 64..71. `cchText == 1` -> **0** with an
 empty string (LoadString is skipped when cch < 2). Text comes from winmmbase
 string resources (`LoadString(ghInst, code)`), so it is locale dependent: do
 not CHECK exact text, CHECK non-empty and NUL-terminated within cch.
-`midiOutGetErrorText` (!0x7d40, `midiGetErrorTextW`): valid 0..21 and 64..71.
+`midiOutGetErrorText` (!0x7d40, `midiGetErrorTextW`): range 0..21 and 64..71
+(21 -> 9 at run time, see above).
 
 ### 2.7 Callbacks and message sequence
 
@@ -304,7 +314,13 @@ creates a handle and sends no callback.
    entry proc -> 6.
 6. `NewHandle(type 3)` failure -> 7; MODM_OPEN (3); success stores handle.
 The mapper is midimap.dll (`MidiMapperInit`) which routes to the default
-synth, normally "Microsoft GS Wavetable Synth" **[VM]**.
+synth, normally "Microsoft GS Wavetable Synth" **[VM confirmed]**.
+**[VM pass 2]** The GS synth is single-open: while one HMIDIOUT on device 0
+is open in the process, a second `midiOutOpen` of device 0 or of MIDI_MAPPER,
+and `midiStreamOpen` on device 0, return **4 (MMSYSERR_ALLOCATED)**. Device 0
+opened with fdwOpen 0x4000 -> 0 (bit 0x4000 is outside the 0x3FF3 mask).
+`midiOutOpen(0xFFFF)` -> 2 (not translated to the mapper). Tests must close
+each MIDI handle before the next open.
 
 ### Messages and headers
 * `midiOutShortMsg` (!0x8570): handle must be midiOut (3) or midiStream (9),
@@ -383,6 +399,11 @@ driver entry -> 6; MIDM_OPEN 0x37.
   instance sends MXDM_CLOSE.
 * Callbacks: MM_MIXM_LINE_CHANGE (0x3D0) / MM_MIXM_CONTROL_CHANGE (0x3D1) to
   a window only.
+* **[VM pass 2, HDA guest]** `mixerGetControlDetailsW(id 0, VALUE)` with a
+  well-formed structure and dwControlID 0 -> **1025 (MIXERR_INVALCONTROL)**
+  (control ids start at 1); `mixerGetID((HMIXEROBJ)WAVE_MAPPER, ...,
+  MIXER_OBJECTF_WAVEOUT)` -> **6**; mixerOpen(0) / mixerClose -> 0 / 0;
+  `mixerGetLineInfoW(DESTINATION 0)` -> 0; sizeof(MIXERLINEW) = 284.
 
 ## 5. aux
 
@@ -436,7 +457,8 @@ for the 15.625 ms tick; 0x37 = 55 if the query fails or the value is
   `timeBeginPeriod` (failure -> 0) and released by `timeEndPeriod` when the
   event dies.
 * The fptc pointer is not validated; a NULL function callback is simply not
-  called (`timeThread` checks it) **[VM before relying on it]**.
+  called (`timeThread` checks it) **[VM confirmed pass 2: a NULL-callback
+  one-shot returns a nonzero id; once it has fired, killing it -> 97]**.
 * At most **16** live events per process (`timeThreadSetEvent` scans 16
   slots; 17th -> 0). Ids are `generation*16 + slot` with the generation
   counter stepping by 0x10, so ids are nonzero and not reused immediately.
@@ -458,6 +480,13 @@ for the 15.625 ms tick; 0x37 = 55 if the query fails or the value is
   Before any timeSetEvent in the process (no timer thread) it returns 97.
   Do not use id 0 as the "unknown id" in tests; use a nonzero id such as
   0x12345 (slot 5, never equal to a live generation-tagged id).
+  **[VM confirmed pass 2: after earlier timeSetEvent calls `timeKillEvent(0)`
+  -> 0; `timeKillEvent(0x12345)` -> 97.]**
+* **[VM pass 2]** Ids observed for 20 back-to-back periodic events in a fresh
+  process (after 4 earlier events): 32 49 66 83 ... 287, then 0 for the 17th..20th,
+  so id = generation (stepping 0x10 per allocation) + slot, and the cap is
+  16. A one-shot callback was invoked once as (id, 0, dwUser, 0, 0).
+  TIME_CALLBACK_EVENT_SET signalled the event.
 
 ## 7. mmio (winmmbase)
 
@@ -477,10 +506,17 @@ for the 15.625 ms tick; 0x37 = 55 if the query fails or the value is
   seeking outside the buffer -> -1.
 * `mmioDescend` (!0x2be0): flags other than FINDCHUNK 0x10 / FINDRIFF 0x20 /
   FINDLIST 0x40 -> 10; NULL ckinfo -> 11; `pmmcki->dwFlags = 0`; NULL hmmio ->
-  258; reads 8-byte headers; 'MThd'/'MTrk' sizes are byte-swapped (MIDI
-  files are big-endian); fccType read only for RIFF/LIST; child chunks must
+  258; reads 8-byte headers. **[fact-check pass 2, decomp + VM correction]**
+  For 'MThd'/'MTrk' the size is byte-swapped only into a local used for the
+  sanity, parent and file-length checks. `pmmcki->cksize` keeps the raw
+  big-endian bytes: an MThd of length 6 comes back as **0x06000000**, and a
+  clamped size is stored swapped back. Skipping such a chunk (FINDCHUNK for
+  another id) or a later mmioAscend uses that raw value, so in a 26-byte
+  memory MIDI image `mmioAscend` after the MThd descend returned **263**, and
+  a FINDCHUNK search past MThd returned **263**, not 265. fccType read only for RIFF/LIST; child chunks must
   lie inside the parent; for DOS files cksize is clamped to the remaining
-  file length; not found -> **265 (CHUNKNOTFOUND)**; seek failure -> 263.
+  file length; not found -> **265 (CHUNKNOTFOUND)** (when the end of the data
+  is reached cleanly); seek failure -> 263.
   FINDCHUNK compares ckid, FINDRIFF/FINDLIST compare fccType.
 * `mmioAscend` (!0x2e10): fuAscend != 0 -> 10; NULL -> 11; for chunks
   created with mmioCreateChunk (dwFlags MMIO_DIRTY 0x10000000) it pads to even
@@ -583,8 +619,17 @@ and stop with `PlaySound(NULL, NULL, 0)`.
   0.
 * Devices: waveaudio (mciwave), sequencer (mciseq), cdaudio (mcicda),
   avivideo (mciavi32); configured under `[MCI32]`. `sysinfo all quantity`
-  lists them **[VM]**. With zero wave devices `open new type waveaudio alias
-  x` may still succeed (no device is opened until record/play) **[VM]**.
+  lists them **[VM pass 2, HDA guest: `sysinfo all quantity` -> "5",
+  `sysinfo waveaudio quantity` -> "1"; `open new type waveaudio alias x`
+  -> 0, `status x mode` -> "stopped", `close x` -> 0]**. With zero wave
+  devices `open new type waveaudio alias x` may still succeed (no device is
+  opened until record/play) **[VM: not yet observed]**.
+* **[VM pass 2]** Every parser error above came back with high word 0:
+  261, 299, 263 (`play new`), 292 (bare `play`), 279 (`status all mode`),
+  263 for `status <unknown name> mode` (no auto-open of a name that is not a
+  file or type), 300 (notify on an auto-open), `close all` -> 0.
+  `mciGetErrorStringW(0)` -> TRUE, `(9999)` -> FALSE, NULL buffer -> FALSE,
+  `(77<<16 | 261)` -> TRUE.
 * Notification: MM_MCINOTIFY (0x3B9) posted to hwndCallback with
   MCI_NOTIFY_SUCCESSFUL 1 / SUPERSEDED 2 / ABORTED 4 / FAILURE 8 and the
   device id in lParam.
@@ -602,6 +647,12 @@ and stop with `PlaySound(NULL, NULL, 0)`.
 * `joyGetPos`: NULL -> 11, else joyGetPosEx with JOY_RETURNX|Y|Z|BUTTONS.
 * `joyGetThreshold`/`joySetThreshold`: errors are **11** (not JOYERR);
   threshold >= 0x10000 -> 11.
+* **[VM pass 2, no controller]** joyGetDevCapsW: NULL -> 11, cb 100 -> 165,
+  id 0 -> 165, id 16 -> 6, id -1 -> 0 (wMid 0, szRegKey starts with 'D';
+  the rest was not printed); joyGetPosEx: size 51, id 0, id 16, NULL -> 165; joyGetPos
+  NULL -> 11, id 0 -> 165; joyGetThreshold NULL / id 0 / id 16 -> 11;
+  joySetThreshold(0, 0x10000) and (16, 0) -> 11; joyReleaseCapture 16 -> 165,
+  0 -> 11; joySetCapture(NULL hwnd) -> 165. sizeof(JOYCAPSW) = 728 = 0x2D8.
 * `joySetCapture`: no user32 timer support -> 8; NULL/non-window hwnd or
   id > 15 -> 165; already captured -> 166. `joyReleaseCapture`: id > 15 ->
   165; never-opened id -> 11.
@@ -646,14 +697,16 @@ is answered by winmmbase, not the driver.
    -> 5.
 2. GetDevCaps with cb 0 -> 0 even with a NULL pointer (wave, midi, mixer, aux).
 3. `waveOutGetErrorText(code, buf, 0)` -> 0; `(22, buf, n)` -> 9;
-   `(32..35)` -> 0; `midiOutGetErrorText(64..71)` -> 0, `(32)` -> 9.
+   `(21)` -> 9 (no string resource, VM); `(32..35)` -> 0;
+   `midiOutGetErrorText(64..71)` -> 0, `(32)` -> 9.
 4. Zero devices: every wave open (incl. WAVE_MAPPER and QUERY) -> 2 after
    parameter validation; caps by id -> 2.
 5. timeBeginPeriod/EndPeriod counting and the >= uMax no-op; timeGetDevCaps
    -> {1 (typ.), 1000000}; bad cb -> 97; timeGetSystemTime bad cb -> 129.
 6. timeSetEvent: 0 on invalid flags/delay, 16-event cap, uMsg 0 in callbacks.
 7. mmio: chunk round-trip in a memory file (CREATERIFF, CREATECHUNK, ASCEND,
-   DESCEND FINDRIFF/FINDCHUNK), MThd byte-swap, CHUNKNOTFOUND 265.
+   DESCEND FINDRIFF/FINDCHUNK), MThd raw big-endian cksize and the 263 on
+   ascend/skip (pass 2), CHUNKNOTFOUND 265 on RIFF data.
 8. PlaySound: invalid flags -> FALSE, NULL -> TRUE, memory image must be RIFF
    WAVE for ASYNC, NODEFAULT for any name lookup.
 9. MCI: error codes 261/263/292/299, high-word device id encoding, never pass
@@ -834,10 +887,76 @@ That print evaluates `h` in the same printf argument list as the call, and the
 argument evaluation order is unspecified, so the line does NOT disprove the
 decomp. `fc02probe` reads `h` in a separate statement (`wo_open_badid_h`).
 
-Still UNVERIFIED on the VM (the pass-2 `fc02probe` boot was queued behind
-the shared oracle lock; see the VM-run note below): everything in pass 1's
-UNVERIFIED list except the device counts / aux / joystick / synth items now
-confirmed above; the `mmioSeek(SEEK_END)` sign; the timeKillEvent(0)
-hazard; and all the hard error-code ladders that need no device (waveOutOpen
-flag masks, WAVEHDR ladder, mixer/mmio/MCI/joystick codes, which are
-decomp-confirmed twice).
+Confirmed on the VM by `tools/proto/fc02probe.c` (pass 2 boot
+`~/w10lab/runs/fc02p2/hda`: QEMU intel-hda + hda-duplex, Win10 19045.2965;
+the probe ran twice in one boot with byte-identical output):
+* mmsystemGetVersion 778 (0x30A); counts 1/1/1/0/2/0/16.
+* waveOutOpen: pwfx NULL -> 11 (also with phwo NULL), phwo NULL -> 11,
+  WAVE_MAPPED with WAVE_MAPPER and with 0xFFFF -> 10, 0x10 with id 0 -> 10,
+  0x10|QUERY with the mapper -> 0, bit 0x200 -> 10, bad window -> 11, NULL
+  window + QUERY -> 0, QUERY with NULL phwo -> 0, id 9999 -> 2 **and `*phwo`
+  is NULL afterwards**. waveInOpen pwfx NULL -> 11.
+* WAVEHDR ladder exactly as section 2.3: NULL handle + flags 0 -> 5, NULL
+  handle + PREPARED -> 0, NULL header / cb 47 / flag 0x20 -> 11,
+  0x1000|PREPARED -> 0; Write unprepared 34, inqueue 33, prepared + bad
+  handle 5; Unprepare unprepared 0, inqueue 33, prepared + bad handle 5;
+  AddBuffer 34 / 33.
+* Caps: cb 0 + NULL -> 0, NULL -> 11, bad id -> 2, mapper/0xFFFF/0 -> 0;
+  waveOutGetDevCapsA(cb 4) -> 0 and byte 4 untouched; close/GetID/
+  GetPosition/GetVolume/GetPitch/Pause/Reset codes as in 2.4; GetVolume and
+  Message on id 9999 -> 2.
+* Error text (see the 21 correction), midi codes, midiOut/midiIn/midiStream
+  open ladders including midiIn bad window -> 11 (pass-1 correction holds),
+  MIDI_IO_STATUS accepted, flag 2 -> 10, midiStreamOpen cMidi 0/2/NULL ids ->
+  11, bad id -> 2 with the slot rewritten to 0xFFFFFFFE, midiOutLongMsg
+  64 / 65 / len 0 -> 11 / bad handle 5 / cb 43 -> 11, midiOutPrepareHeader(bad
+  handle, NULL) -> 5.
+* Mixer open/line/details ladders (10 / 11 / 11 / 10 / 11 / 11 / 0; details
+  10 / 11 / 11 / 11 / 11 / 10), caps, mixerClose(NULL) -> 5,
+  mixerGetID flag 1 -> 10, NULL -> 11; aux codes.
+* kernel32 time: caps {1, 1000000}, cb 7 / NULL -> 97; Begin(0) 97;
+  Begin/End(1) 0/0 then End 97; End(0) 97; unbalanced End(7) 97; period 15
+  counted (End again -> 97); 16 and 1000 are uncounted no-ops (End again ->
+  0); nested Begin(2) x2 needs two Ends, third -> 97; timeGetSystemTime cb 11
+  / NULL -> 129, ok -> wType TIME_MS.
+* timeSetEvent flags 2 / 0x200 -> 0, delay 0 and 1000001 -> 0, fired
+  one-shot kill -> 97, 16-slot cap, timeKillEvent(0) hazard.
+* mmio: FOURCC padding ("ab" -> 'ab  ', "" -> '    ', "abcdef" -> 'abcd',
+  TOUPPER, NULL -> 0); mmioOpen bad flag -> NULL with wErrorRet untouched
+  (0x5555); MMIO_EXIST missing -> NULL + 257, present -> (HMMIO)1; seek
+  SET 5 -> 5, origin 7 -> 0, **SEEK_END +4 -> 22 and -4 -> -1 on a 26-byte
+  memory file (so the offset is subtracted from the end; pass-1 reading
+  confirmed)**, END 0 -> 26, beyond -> -1; mmioRead NULL -> -1; bad handle:
+  close 5, read -1, seek -1, getinfo 5; descend bad flag 10, NULL ck 11, NULL
+  hmmio 258.
+* PlaySound: NULL / NULL+ASYNC / "" -> TRUE; bad flags 0x20 / 0x100 /
+  0x800000 -> FALSE; missing file / alias / resource with NODEFAULT -> FALSE;
+  ASYNC|MEMORY junk -> FALSE; silent memory image sync and async -> TRUE;
+  sndPlaySound(NULL) -> TRUE.
+* MCI and joystick: see sections 9 and 10.
+
+New corrections from the pass-2 VM run:
+8. Error code 21 has no text: waveOut/waveIn/midiOut GetErrorText(21) -> 9.
+9. mmioDescend does NOT return a swapped MThd/MTrk size (raw big-endian
+   0x06000000 for 6), and walking past such a chunk gives 263.
+10. WAVE_FORMAT_QUERY does not reject an inconsistent nBlockAlign, nor
+    CALLBACK type 7.
+11. The GS Wavetable Synth is single-open (second open, mapper or stream ->
+    4).
+12. mixerGetControlDetails with control id 0 -> 1025; mixerGetID(WAVE_MAPPER,
+    WAVEOUT) -> 6.
+
+Probe defect noted for reuse: fc02probe opened midiOut device 0 with flag
+0x4000 and did not close it, so its later `mo_open_mapper`, `mo_open_id0`
+and `ms_open_id0` read 4 and the midiStream property/out checks did not run.
+Those remain decomp-only.
+
+Still UNVERIFIED on the VM: the zero-device run of fc02probe (queued as
+`~/w10lab/runs/fc02p2/noa`, results not in at the time of writing;
+the audprobe zero-device results above cover counts, opens, caps and
+PlaySound); MCI `open new type waveaudio` with zero wave devices; every
+wdmaud callback-ordering item (WOM_OPEN/DONE/CLOSE order, close with queued
+buffers -> 33, pitch/rate NOTSUPPORTED, zero-length writes);
+midiStreamProperty/midiStreamOut on a real stream handle; mixerOpen sharing;
+TIME_KILL_SYNCHRONOUS; that `mciSendString(NULL)` actually faults (never run,
+by design).
