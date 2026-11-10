@@ -31,9 +31,17 @@ resolves back to **winmm.dll** (0x2a20 / 0x2e50) [decomp]. So winmm and winmmbas
 time-event thread lives in winmm, the MME device layer in winmmbase.
 
 Device enumeration in winmmbase: every `*GetNumDevs` calls `ClientUpdatePnpInfo`, which binds to the
-**Audiosrv** RPC endpoint, waits for the service, calls `mmdevapi!InitializeDeviceAPI` (ordinal 3) and
-`mmdevapi!MMDeviceGetDeviceEnumerator` (ordinal 5), gathers endpoints and MIDI interfaces, then rebuilds the
-device lists and the mapper [decomp]. The per-device driver (wdmaud.drv) is **not in the corpus**, so everything
+**Audiosrv** RPC endpoint, waits for the service, calls `mmdevapi!InitializeDeviceAPI` (ordinal 3) and, inside
+`winmmGetEndpointsWorker`, `mmdevapi!MMDeviceGetDeviceEnumerator` (ordinal 5), gathers endpoints and MIDI
+interfaces, then rebuilds the device lists and the mapper [decomp]. `waveOutPrepareHeader`, `waveOutWrite`,
+and `waveInPrepareHeader` also call `ClientUpdatePnpInfo`, but only after their argument gates (other handle
+calls not checked).
+
+Only the first call in a process runs the init half (`winmmWaitForService`, binding, ordinal 3, InitDevices);
+concurrent first callers wait on an event with INFINITE. `winmmWaitForService` polls `QueryServiceStatus(AudioSrv)`
+every **2 s for up to about 120 s** while the service is START_PENDING, or stopped with exit code 0x435 and
+auto-start [decomp]. On a guest whose Audiosrv is still starting, the first `*GetNumDevs` can block for seconds:
+call it once in setup and never time it. The per-device driver (wdmaud.drv) is **not in the corpus**, so everything
 below the `wodMessage`/`widMessage`/`modMessage` boundary is evidence-by-VM only.
 
 ### Identical-code folding (aliases that tests can pin)
@@ -44,12 +52,19 @@ Same RVA, so behaviour must be identical byte for byte [decomp]:
 |---|---|
 | winmm ordinal 2 (no name) | `PlaySound` (winmm 0x98b0, a jmp to `PlaySoundA`) |
 | `PlaySound` | `PlaySoundA` |
-| `GetDriverModuleHandle` | `DrvGetModuleHandle` (one winmmbase body; the winmm thunk jumps through the DrvGetModuleHandle IAT slot) |
+| `GetDriverModuleHandle` | `DrvGetModuleHandle` (one winmmbase body at 0x36f0; winmm imports both names separately from WINMMBASE, IAT slots 0x1f048 and 0x1f058, and both resolve to 0x36f0) |
 | `waveOutGetErrorTextA/W` | `waveInGetErrorTextA/W` (winmmbase 0x10340 / 0x10320) |
 | `midiOutGetErrorTextA/W` | `midiInGetErrorTextA/W` (winmmbase 0x7d60 / 0x7d40) |
 
 Consequence: the wave-out and wave-in error tables are one table, as are midi-out and midi-in; a test can assert
 equal output for every code, and `waveInGetErrorText(WAVERR_*)` returns wave text too.
+
+Error-text gates, the same for all four bodies [decomp, winmmbase 0x10320/0x10340/0x7d40/0x7d60]:
+`cchText == 0` returns 0 (MMSYSERR_NOERROR) **before** the pointer check, so `(code, NULL, 0)` succeeds;
+`pszText == NULL` with cch > 0 returns 11 (MMSYSERR_INVALPARAM). Otherwise the buffer is cleared first. Accepted
+codes: wave = 0..21 and 32..35 (WAVERR_BADFORMAT..WAVERR_SYNC); midi = 0..21 and 64..71 (MIDIERR_*). Any other code
+returns 9 (MMSYSERR_BADERRNUM) with an empty string. With `cchText == 1` an accepted code returns 0 and an empty
+string (LoadString is skipped).
 
 Other notable bodies [decomp]:
 
@@ -58,17 +73,30 @@ Other notable bodies [decomp]:
 * `joyGetNumDevs` = `mov eax,16; ret` (constant 16, no device query).
 * `mmsystemGetVersion` = `mov eax,0x30a; ret`.
 * `mciDriverNotify(hwnd, devid, status)` = `PostMessageW(hwnd, MM_MCINOTIFY 0x3b9, status, devid)`.
-* `DriverCallback`: winmm has **its own** copy (0x1426c, 165 bytes) separate from winmmbase's (0x5560). Type is
-  `dwFlags & 7`: 1 window -> PostMessageA, 2 task -> PostThreadMessageA, 3 function -> call, 5 event -> SetEvent;
-  NULL target or any other type returns 0 / delivers nothing.
+* `DriverCallback(dwCallback, dwFlags, hDevice, dwMsg, dwUser, dwParam1, dwParam2)`: winmm has **its own** copy
+  (0x1426c, 165 bytes) separate from winmmbase's (0x5560). Type is `dwFlags & 7` [asm, verified]:
+  * 1 (DCB_WINDOW): tail jump to `PostMessageA(hwnd, dwMsg, hDevice, dwParam1)`; returns PostMessageA's BOOL.
+  * 2 (DCB_TASK): `PostThreadMessageA(tid, dwMsg, hDevice, dwParam1)`, then tail jump to
+    `winmmbase!mmTaskSignal(tid)` (posts WM_USER 0x400 to the same thread); returns mmTaskSignal's BOOL.
+  * 3 (DCB_FUNCTION): calls `fn(hDevice, dwMsg, dwUser, dwParam1, dwParam2)`, returns 1.
+  * 5 (DCB_EVENT): `SetEvent(handle)`, returns 1 (the SetEvent result is ignored).
+  * NULL `dwCallback`, type 0, 4, 6 or 7: returns 0 and delivers nothing.
+  So a DCB_TASK target thread sees **two** messages: dwMsg and then 0x400.
 * `joyConfigChanged(0)` closes all joysticks and **broadcasts** a registered message with
   `PostMessageW(HWND_BROADCAST, ...)`; non-zero flags return 165 (JOYERR_PARMS) without doing anything.
 * `mciExecute(cmd)` = `mciSendString`, and on **failure shows a MessageBoxW** with the error text.
 * `mmGetCurrentTask` = `GetCurrentThreadId` (tail jump in winmmbase).
-* `mmTaskCreate` = CreateThread (stack 0x200) with optional event; `mmTaskBlock` pumps
-  GetMessageA/DispatchMessageA; `mmTaskSignal` = PostThreadMessageA.
-* `WOWAppExit(task)` closes every MCI device owned by the task (MCI_CLOSE), kills its timer events and frees MME
-  handles (winmmbaseFreeMMEHandles).
+* `mmTaskCreate(lpfn, lph, dwInst)` = CreateThread (stack 0x200) running `lpfn(dwInst)`. When `lph` is not NULL
+  it creates an auto-reset event, stores the **event handle** (not a thread id) in `*lph`, and the event is set when
+  `lpfn` returns. Returns 0, or 2 (TASKERR_OUTOFMEMORY) when allocation, the event or the thread fails.
+* `mmTaskBlock(h)` ignores its argument and pumps GetMessageA/DispatchMessageA on the **calling** thread until a
+  thread message (hwnd NULL) 0x400 arrives: an **unbounded** wait (hazard, see section 6).
+* `mmTaskSignal(tid)` = `PostThreadMessageA(tid, 0x400 /*WM_USER*/, 0, 0)`; returns FALSE without posting when
+  user32 GetMessageW is not available.
+* `mmTaskYield` is a bare `ret`.
+* `WOWAppExit(task)` sends MCI_CLOSE (0x804) to every MCI device whose creator is `task`, kills the timer events of
+  that task (when `task != 0`; with `task == 0` it closes the timer thread's handle instead), calls
+  `winmmbaseFreeMMEHandles(task)`, and, if avicap32.dll is loaded, calls its `AppCleanup(task)`.
 
 ## 2. Family table
 
@@ -77,21 +105,21 @@ Other notable bodies [decomp]:
 
 | family | exports | documented | forwards to | testable headless | with HDA adds |
 |---|---|---|---|---|---|
-| **time** | timeGetTime, timeGetSystemTime, timeGetDevCaps, timeBeginPeriod, timeEndPeriod, timeSetEvent, timeKillEvent (7) | yes (timeapi; set/kill on Learn as obsolete) | first 5 -> kernel32 (api-ms-win-mm-time); set/kill local in winmm | **full**: monotonic time, MMTIME struct size gates (TIMERR_STRUCT 0x81 / TIMERR_NOCANDO 0x61), begin/end pairing and range, one-shot and periodic events with bounded waits, TIME_CALLBACK_EVENT_SET/PULSE, kill of bad ids | nothing |
-| **wave out** | waveOutGetNumDevs, GetDevCapsA/W, GetErrorTextA/W, Open, Close, PrepareHeader, UnprepareHeader, Write, Pause, Restart, Reset, BreakLoop, GetPosition, GetPitch, SetPitch, GetPlaybackRate, SetPlaybackRate, GetVolume, SetVolume, GetID, Message (23) | yes (mmeapi) | winmmbase (mm-mme) | **contract**: 0 devices, GetDevCaps(id>=n) BADDEVICEID, WAVE_MAPPER open -> BADDEVICEID / format query, NULL and flag gates (INVALPARAM 11, INVALFLAG 10), WAVEHDR gates checked before the handle (NULL, cb<0x30, bad dwFlags), INVALHANDLE on NULL/closed handles, error texts for every MMSYSERR/WAVERR code | open/close per format, WAVE_FORMAT_QUERY matrix, prepare/write/done order, callback kinds (function, event, thread, window), position units, pause/restart/reset/breakloop, volume get/set (restore), STILLPLAYING/UNPREPARED |
+| **time** | timeGetTime, timeGetSystemTime, timeGetDevCaps, timeBeginPeriod, timeEndPeriod, timeSetEvent, timeKillEvent (7) | first 5: exact vendored pages (timeapi); set/kill: no vendored function page, only conceptual pages (starting-a-single-timer, canceling-a-timer-event) | first 5 -> kernel32 (api-ms-win-mm-time); set/kill local in winmm | **full**: monotonic time, MMTIME struct size gates (TIMERR_STRUCT 0x81 / TIMERR_NOCANDO 0x61), begin/end pairing and range, one-shot and periodic events with bounded waits, TIME_CALLBACK_EVENT_SET/PULSE, kill of bad ids | nothing |
+| **wave out** | waveOutGetNumDevs, GetDevCapsA/W, GetErrorTextA/W, Open, Close, PrepareHeader, UnprepareHeader, Write, Pause, Restart, Reset, BreakLoop, GetPosition, GetPitch, SetPitch, GetPlaybackRate, SetPlaybackRate, GetVolume, SetVolume, GetID, Message (23) | yes (mmeapi) | winmmbase (mm-mme) | **contract**: 0 devices, GetDevCaps(id>=n) BADDEVICEID, WAVE_MAPPER open -> BADDEVICEID / format query, NULL and flag gates (INVALPARAM 11, INVALFLAG 10), WAVEHDR gates checked before the handle (NULL, cb<0x30, bad dwFlags: all INVALPARAM 11; see section 7), INVALHANDLE on NULL/closed handles, error texts for every MMSYSERR/WAVERR code | open/close per format, WAVE_FORMAT_QUERY matrix, prepare/write/done order, callback kinds (function, event, thread, window), position units, pause/restart/reset/breakloop, volume get/set (restore), STILLPLAYING/UNPREPARED |
 | **wave in** | waveInGetNumDevs, GetDevCapsA/W, GetErrorTextA/W, Open, Close, PrepareHeader, UnprepareHeader, AddBuffer, Start, Stop, Reset, GetPosition, GetID, Message (16) | yes (mmeapi) | winmmbase (mm-mme) | contract, as wave out; prepare zeroes dwFlags first | capture (hda-duplex input, silence), AddBuffer/Start/Stop/Reset return order, WHDR_DONE with partial dwBytesRecorded |
 | **midi out** | midiOutGetNumDevs, GetDevCapsA/W, GetErrorTextA/W, Open, Close, PrepareHeader, UnprepareHeader, ShortMsg, LongMsg, Reset, GetVolume, SetVolume, CachePatches, CacheDrumPatches, GetID, Message (18) | yes | winmmbase | contract + likely the software synth (Microsoft GS Wavetable Synth) as device 0 [VM?: whether it enumerates and opens with zero audio endpoints] | real open/short/long msg on the synth, volume restore |
 | **midi in** | midiInGetNumDevs, GetDevCapsA/W, GetErrorTextA/W, Open, Close, PrepareHeader, UnprepareHeader, AddBuffer, Start, Stop, Reset, GetID, Message (15) | yes | winmmbase | contract only (no MIDI input on a VM) | none expected |
 | **midi stream / thru** | midiStreamOpen, Close, Out, Pause, Restart, Stop, Position, Property, midiConnect, midiDisconnect (10) | yes | winmmbase | argument gates (cMidi must be 1, NULL id pointer, bad property flags), Open on bad id; on the GS synth if present [VM?] | MEVT_TEMPO / timediv property round trip, MEVT_NOP stream with callbacks |
 | **mixer** | mixerGetNumDevs, GetDevCapsA/W, Open, Close, GetID, GetLineInfoA/W, GetLineControlsA/W, GetControlDetailsA/W, SetControlDetails, Message (14) | yes | winmmbase | contract: 0 mixers, bad id BADDEVICEID, MIXER_OBJECTF_* flag and struct-size gates (cbStruct), INVALHANDLE | line/control topology, details get, set only with restore (dx_), mixerGetID mapping from a wave handle |
 | **aux** | auxGetNumDevs, GetDevCapsA/W, GetVolume, SetVolume, OutMessage (6) | yes | winmmbase | contract (bad id, NULL pointers) | probably still 0 aux devices on Win10 [VM?] |
-| **joystick** | joyGetNumDevs, GetDevCapsA/W, GetPos, GetPosEx, GetThreshold, SetThreshold, SetCapture, ReleaseCapture, ConfigChanged (10) | yes (joystickapi) | local in winmm | **full negative surface**: constant 16 devices, no joystick -> error codes per call (JOYERR_UNPLUGGED 167 / JOYERR_PARMS 165 / MMSYSERR_NODRIVER [VM?]), JOYINFOEX dwSize gate, SetCapture needs a window; ConfigChanged(0) broadcasts, so only the non-zero-flags path outside dx_ | nothing (no joystick device) |
+| **joystick** | joyGetNumDevs, GetDevCapsA/W, GetPos, GetPosEx, GetThreshold, SetThreshold, SetCapture, ReleaseCapture, ConfigChanged (10) | yes (joystickapi) | local in winmm | **full negative surface**: constant 16 devices, argument gates in section 7 (decomp), no joystick -> error codes per call (JOYERR_PARMS 165 from a failed joyOpen per decomp; JOYERR_UNPLUGGED 167 [VM?]), JOYINFOEX dwSize gate, SetCapture needs a window; ConfigChanged(0) broadcasts, so only the non-zero-flags path outside dx_ | nothing (no joystick device) |
 | **mmio** | mmioOpenA/W, Close, Read, Write, Seek, GetInfo, SetInfo, SetBuffer, Flush, Advance, Ascend, Descend, CreateChunk, InstallIOProcA/W, SendMessage, RenameA/W, StringToFOURCCA/W (21) | yes (mmiscapi) | winmmbase (mm-misc) | **full**: memory files (MMIO_ALLOCBUF/`+` memory files), scratch disk files, RIFF build/parse, buffered I/O, custom IO procs, FOURCC conversion, rename in scratch dir, error codes MMIOERR_* | nothing |
-| **PlaySound** | PlaySound, PlaySoundA, PlaySoundW, sndPlaySoundA, sndPlaySoundW, ordinal 2 (6) | yes (playsoundapi / mmsystem) | local in winmm | stop (`NULL`) returns TRUE, flag combinations, SND_NODEFAULT failure on missing alias/file, SND_MEMORY with a short silent in-memory WAV (result depends on device: [VM?] FALSE or TRUE headless), SND_ASYNC + stop | play short silent memory WAV synchronously/asynchronously, SND_LOOP + stop |
-| **MCI** | mciSendCommandA/W, mciSendStringA/W, mciGetErrorStringA/W, mciGetDeviceIDA/W, mciGetDeviceIDFromElementIDA/W, mciGetCreatorTask, mciGetYieldProc, mciSetYieldProc, mciExecute (14) | yes (mmsystem MCI pages) | local in winmm; device types load separate MCI driver DLLs (mciwave, mciseq, mciavi32: not in corpus) | error strings for every MCIERR code, unknown-command / unknown-device errors, `sysinfo all quantity`, `open new type waveaudio alias x` + `close`, `status`/`set` on a memory-free waveaudio element, mciGetDeviceID of unknown name = 0, notify via hidden window; **never mciExecute with a failing command** (message box) | `record`/`play` on waveaudio (silence), `capability` answers, MM_MCINOTIFY ordering |
-| **MCI driver side** | mciDriverNotify, mciDriverYield, mciGetDriverData, mciSetDriverData, mciLoadCommandResource, mciFreeCommandResource (6) | DDK only (mmddk.h, legacy) | local in winmm | invalid device id paths (FALSE/0), DriverNotify posts MM_MCINOTIFY to a test window, Get/SetDriverData on an opened waveaudio id (restore) | same |
+| **PlaySound** | PlaySound, PlaySoundA, PlaySoundW, sndPlaySoundA, sndPlaySoundW, ordinal 2 (6) | vendored: conceptual page "The PlaySound Function" only (exact match for PlaySound); no vendored function page for PlaySoundA/W or sndPlaySoundA/W | local in winmm | stop (`NULL`) returns TRUE, flag combinations, SND_NODEFAULT failure on missing alias/file, SND_MEMORY with a short silent in-memory WAV (result depends on device: [VM?] FALSE or TRUE headless), SND_ASYNC + stop | play short silent memory WAV synchronously/asynchronously, SND_LOOP + stop |
+| **MCI** | mciSendCommandA/W, mciSendStringA/W, mciGetErrorStringA/W, mciGetDeviceIDA/W, mciGetDeviceIDFromElementIDA/W, mciGetCreatorTask, mciGetYieldProc, mciSetYieldProc, mciExecute (14) | not vendored as function pages: names only appear in Multimedia/mci-functions.md and mci-reference.md lists | local in winmm; device types load separate MCI driver DLLs (mciwave, mciseq, mciavi32: not in corpus) | error strings for every MCIERR code, unknown-command / unknown-device errors, `sysinfo all quantity`, `open new type waveaudio alias x` + `close`, `status`/`set` on a memory-free waveaudio element, mciGetDeviceID of unknown name = 0, notify via hidden window; **never mciExecute with a failing command** (message box) | `record`/`play` on waveaudio (silence), `capability` answers, MM_MCINOTIFY ordering |
+| **MCI driver side** | mciDriverNotify, mciDriverYield, mciGetDriverData, mciSetDriverData, mciLoadCommandResource, mciFreeCommandResource (6) | no vendored docs at all (legacy DDK mmddk.h) | local in winmm | invalid device id paths (FALSE/0), DriverNotify posts MM_MCINOTIFY to a test window, Get/SetDriverData on an opened waveaudio id (restore) | same |
 | **installable driver** | OpenDriver, CloseDriver, SendDriverMessage, DefDriverProc, DrvGetModuleHandle, GetDriverModuleHandle, DriverCallback (7) | yes (mmiscapi) | winmmbase (DriverCallback: local copy in winmm) | **full**: OpenDriver of a missing driver -> NULL, NULL-handle Send/Close, DefDriverProc default answers per DRV_* message, DriverCallback all DCB_* types with event/function/thread/window targets | opening the real wdmaud.drv entry (aliases in Drivers32) [VM?] |
-| **mm task (legacy DDK)** | mmTaskCreate, mmTaskBlock, mmTaskSignal, mmTaskYield, mmGetCurrentTask (5) | DDK (mmddk.h) | winmmbase | **full**: mmGetCurrentTask == GetCurrentThreadId, create a task thread, signal/block round trip with bounded wait | nothing |
+| **mm task (legacy DDK)** | mmTaskCreate, mmTaskBlock, mmTaskSignal, mmTaskYield, mmGetCurrentTask (5) | DDK (mmddk.h) | winmmbase | **full**: mmGetCurrentTask == GetCurrentThreadId, create a task thread and wait (bounded) on the event returned in `*lph`, mmTaskSignal(self) then mmTaskBlock (message already queued; mmTaskBlock itself has no timeout) | nothing |
 | **legacy / undocumented** | mmsystemGetVersion, WOWAppExit, mmDrvInstall (3); ordinal 2 is counted under PlaySound | no (version: header only) | version/WOW local; mmDrvInstall -> winmmbase | mmsystemGetVersion == 0x30a; **WOWAppExit and mmDrvInstall: existence only** (process-wide teardown / driver install) | nothing |
 
 Totals: 7 + 23 + 16 + 18 + 15 + 10 + 14 + 6 + 10 + 21 + 6 + 14 + 6 + 7 + 5 + 3 = **181**, matching the export
@@ -103,11 +131,11 @@ winmmbase (141 named, no ordinal-only) holds every MME body above. Exports winmm
 
 | export | documented | what it does [decomp] | test |
 |---|---|---|---|
-| `sndOpenSound` | yes (mmiscapi page) | binds ncalrpc `Audiosrv`, NdrClientCall3 proc 8 of the AudioSrv interface | existence + the call shape only after VM observation; not an app-level API |
+| `sndOpenSound` | yes (mmiscapi page) | binds ncalrpc `Audiosrv`, NdrClientCall3 proc 8 of the AudioSrv interface; on RPC success writes the result through the 4th argument (FileHandle) without a NULL check | existence + the call shape only after VM observation; not an app-level API |
 | `winmmbaseFreeMMEHandles(task)` | no | walks the MME handle list, resets and closes every handle of that owner | existence only (would close the test's own handles) |
 | `winmmbaseGetWOWHandle(h)` | no | returns the WORD at `h - 0x38` of the internal handle | existence; only on a live handle, never garbage |
 | `winmmbaseSetWOWHandle(h, w)` | no | stores the WORD | existence (round trip on a live handle at most) |
-| `winmmbaseHandle32FromHandle16(w)` | no | list lookup by WOW handle, 0 when none | `(0xBEEF)` -> 0 is a safe probe |
+| `winmmbaseHandle32FromHandle16(w)` | no | list lookup by WOW handle (compares the DWORD at `h - 0x38` with `w`); returns the **low 32 bits** of the matching internal handle, 0 when none | `(0xBEEF)` -> 0 is a safe probe while no handle carries that WOW value. UNVERIFIED: whether new handles start with a WOW value of 0, so do not probe with `w == 0` while MME handles are open |
 
 `timeGetTime` and friends are not exported by winmmbase (it imports them from kernel32 like winmm does).
 
@@ -160,10 +188,47 @@ and run the device half only when n > 0, emitting `t_note` with the count and ca
 * `joyConfigChanged(0)` posts to **HWND_BROADCAST**: dx_ only; `joyConfigChanged(1)` -> 165 is the safe probe.
 * `WOWAppExit`, `winmmbaseFreeMMEHandles`: process-wide teardown of MCI devices, timers and MME handles.
 * `mmDrvInstall`: installs a driver into the process' driver lists.
+* `mmTaskBlock` waits with no timeout until a WM_USER (0x400) thread message reaches the calling thread. Call it
+  only after `mmTaskSignal(GetCurrentThreadId())` has already posted one (the message stays queued), or from a task
+  thread that is certain to be signalled.
+* `WOWAppExit(0)` closes the winmm timer thread handle: never call it in a process that still uses timeSetEvent.
+* First `*GetNumDevs` per process can block for up to about 120 s while Audiosrv is starting (section 1).
+* `sndOpenSound`: needs a valid out pointer as its 4th argument.
 * `winmmbaseGetWOWHandle/SetWOWHandle`: dereference `handle - 0x38` with no validation; never pass a non-handle.
 * `timeBeginPeriod` must be paired with `timeEndPeriod` for the same value; resolution is process/system state.
 * `waveOutSetVolume`, `midiOutSetVolume`, `auxSetVolume`, `mixerSetControlDetails`: read, change, restore.
 * Volume/mute and default-device state live in Audiosrv and survive the process: dx_ areas only.
+
+## 7. Argument gates read from decomp (added during fact-check)
+
+These are hard-CHECK candidates: each one is decided before any device or driver is involved.
+
+* **time (kernel32 bodies)**: `timeGetSystemTime(p, cb)` with `cb < 12` or `p == NULL` -> 0x81 (TIMERR_STRUCT);
+  success sets `wType = TIME_MS`. `timeGetDevCaps(p, cb)` with `cb < 8` or NULL -> 0x61 (TIMERR_NOCANDO); success
+  sets `wPeriodMax = 1000000`, and `wPeriodMin` is the minimum timer resolution in ms (at least 1).
+  `timeBeginPeriod(u)` with `u < wPeriodMin` (so `0`) -> 0x61. A period at or above the coarse resolution (about
+  16 ms, from NtQueryTimerResolution, capped at 55) returns 0 and changes nothing; the same holds for
+  `timeEndPeriod`. `timeEndPeriod(u)` for an in-range period that has no matching Begin -> 0x61.
+* **timeSetEvent(delay, res, cb, user, flags)**: flags with any bit of `0xfffffe0e` set -> 0 (no timer);
+  `delay > 1000000` or `delay < wPeriodMin` -> 0. Timer ids index a 16-slot table (`id & 0xf`).
+  **timeKillEvent** of an unknown id, or before any timer thread exists -> 0x61 (TIMERR_NOCANDO).
+  TIME_KILL_SYNCHRONOUS (0x100) makes the kill wait for a running callback when called from another thread.
+* **joystick**: `joyGetPosEx(id, NULL)` or `dwSize < 0x34` -> 165 (JOYERR_PARMS), checked first; `id > 15` -> 165.
+  `joyGetDevCapsW(id, NULL, cb)` -> 11; `cb` other than 0x2d8 (sizeof(JOYCAPSW) = 728) or 0x308
+  (sizeof(JOYCAPS2W) = 776, the three GUIDs added) -> 165; `id == (UINT_PTR)-1` fills only `szRegKey` and returns 0;
+  `id >= 16` -> 6 (MMSYSERR_NODRIVER); a failed open of id 0..15 -> 165. In joyGetPosEx, JOYERR_UNPLUGGED (167)
+  only comes from a failing DirectInput call on an opened device. Whether joyOpen fails (165) or succeeds with no
+  joystick attached is UNVERIFIED (VM).
+* **WAVEHDR**: `waveOutPrepareHeader`, `waveInPrepareHeader` and `waveOutWrite` reject `pwh == NULL`,
+  `cbwh < 0x30`, or `dwFlags & 0xffffcfe0` with **11 (MMSYSERR_INVALPARAM)**, not INVALFLAG, before the handle
+  is checked. A header that already has WHDR_PREPARED makes Prepare return **0 without validating the handle**.
+  `waveOutWrite` on an unprepared header -> 0x22 (WAVERR_UNPREPARED), and on a header with WHDR_INQUEUE -> 0x21
+  (WAVERR_STILLPLAYING), both before the handle check; a bad handle otherwise -> 5 (INVALHANDLE).
+  waveOut Prepare keeps only BEGINLOOP|ENDLOOP of dwFlags; waveIn Prepare sets dwFlags to 0.
+* **waveOutOpen**: `pwfx == NULL` -> 11; a CALLBACK_WINDOW with a dwCallback that is not a window -> 11.
+  `uDeviceID == 0xffff` is treated as WAVE_MAPPER (0xffffffff).
+* **midiStreamOpen**: `phms == NULL`, CALLBACK_WINDOW with a non-window, `puDeviceID == NULL` with `cMidi != 0`, or
+  `cMidi != 1` -> 11; `*phms` is set to NULL before the `cMidi` check.
 
 ## Appendix: all 181 winmm exports
 
@@ -174,16 +239,16 @@ pages, else the header family where the vendored docs only mention the name.
 | ord | export | winmm body | resolves to | documented |
 |---:|---|---|---|---|
 | 2 | `(ordinal only)` | alias of PlaySound (same RVA 0x98b0) | winmm!PlaySoundA (jmp) | no name; same body as documented PlaySound |
-| 3 | `mciExecute` | local, 459 bytes | winmm (local) -> AllocUnicodeStr, mciEatToken, mciGetErrorStringW | yes, mmsystem.h (Learn, MCI) |
+| 3 | `mciExecute` | local, 459 bytes | winmm (local) -> AllocUnicodeStr, mciEatToken, mciGetErrorStringW | not vendored as a function page (name in MCI function lists at most) |
 | 4 | `CloseDriver` | 7-byte `jmp [IAT]` thunk | winmmbase!CloseDriver (via WINMMBASE) | yes (mmiscapi) |
 | 5 | `DefDriverProc` | 7-byte `jmp [IAT]` thunk | winmmbase!DefDriverProc (via WINMMBASE) | yes (mmiscapi) |
 | 6 | `DriverCallback` | 5-byte jmp to local body (165 bytes) | winmm (local copy; winmmbase has its own at 0x5560) | yes (mmiscapi) |
 | 7 | `DrvGetModuleHandle` | 7-byte `jmp [IAT]` thunk | winmmbase!DrvGetModuleHandle (via WINMMBASE) | yes (mmiscapi) |
-| 8 | `GetDriverModuleHandle` | 7-byte `jmp [IAT]` thunk | winmmbase!DrvGetModuleHandle (via WINMMBASE) **(shared body)** | yes (mmiscapi) |
+| 8 | `GetDriverModuleHandle` | 7-byte `jmp [IAT]` thunk | WINMMBASE!GetDriverModuleHandle (own IAT slot) -> winmmbase 0x36f0 = DrvGetModuleHandle body **(shared body)** | yes (mmiscapi) |
 | 9 | `OpenDriver` | 7-byte `jmp [IAT]` thunk | winmmbase!OpenDriver (via WINMMBASE) | yes (mmiscapi) |
 | 10 | `PlaySound` | 5-byte jmp | winmm!PlaySoundA | yes (Multimedia) |
-| 11 | `PlaySoundA` | local, 196 bytes | winmm (local) -> Imbstowcs, sndPlaySoundI | yes, playsoundapi.h (Learn) |
-| 12 | `PlaySoundW` | local, 127 bytes | winmm (local) -> sndPlaySoundI | yes, playsoundapi.h (Learn) |
+| 11 | `PlaySoundA` | local, 196 bytes | winmm (local) -> Imbstowcs, sndPlaySoundI | not vendored (conceptual PlaySound page only) |
+| 12 | `PlaySoundW` | local, 127 bytes | winmm (local) -> sndPlaySoundI(psz, hmod, flags) | not vendored (conceptual PlaySound page only) |
 | 13 | `SendDriverMessage` | 7-byte `jmp [IAT]` thunk | winmmbase!SendDriverMessage (via WINMMBASE) | yes (mmiscapi) |
 | 14 | `WOWAppExit` | local, 495 bytes | winmm (local) -> mciSendCommandW, timeKillEvent | no |
 | 15 | `auxGetDevCapsA` | 7-byte `jmp [IAT]` thunk | winmmbase!auxGetDevCapsA (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
@@ -202,25 +267,25 @@ pages, else the header family where the vendored docs only mention the name.
 | 28 | `joyReleaseCapture` | local, 172 bytes | winmm (local) | yes (joystickapi) |
 | 29 | `joySetCapture` | local, 609 bytes | winmm (local) -> IsIsWindowPresent, IsSetTimerPresent, joyClose | yes (joystickapi) |
 | 30 | `joySetThreshold` | local, 205 bytes | winmm (local) -> joyOpen | yes (joystickapi) |
-| 31 | `mciDriverNotify` | local, 18 bytes | user32!PostMessageW(hwnd, MM_MCINOTIFY 0x3b9, status, devid) | yes, mmddk.h (legacy DDK, driver side) |
-| 32 | `mciDriverYield` | local, 174 bytes | winmm (local) | yes, mmddk.h (legacy DDK, driver side) |
-| 33 | `mciFreeCommandResource` | local, 432 bytes | winmm (local) | yes, mmddk.h (legacy DDK, driver side) |
-| 34 | `mciGetCreatorTask` | local, 109 bytes | winmm (local) | yes, mmsystem.h (Learn, MCI) |
-| 35 | `mciGetDeviceIDA` | local, 84 bytes | winmm (local) -> AllocUnicodeStr, mciGetDeviceIDInternal | yes, mmsystem.h (Learn, MCI) |
-| 36 | `mciGetDeviceIDFromElementIDA` | local, 77 bytes | winmm (local) -> AllocUnicodeStr, mciGetDeviceIDFromElementIDW | yes, mmsystem.h (Learn, MCI) |
-| 37 | `mciGetDeviceIDFromElementIDW` | local, 266 bytes | winmm (local) | yes, mmsystem.h (Learn, MCI) |
-| 38 | `mciGetDeviceIDW` | local, 36 bytes | winmm (local) -> mciGetDeviceIDInternal | yes, mmsystem.h (Learn, MCI) |
-| 39 | `mciGetDriverData` | local, 166 bytes | winmm (local) | yes, mmddk.h (legacy DDK, driver side) |
-| 40 | `mciGetErrorStringA` | local, 286 bytes | winmm (local) | yes, mmsystem.h (Learn, MCI) |
-| 41 | `mciGetErrorStringW` | local, 287 bytes | winmm (local) | yes, mmsystem.h (Learn, MCI) |
-| 42 | `mciGetYieldProc` | local, 146 bytes | winmm (local) | yes, mmsystem.h (Learn, MCI) |
-| 43 | `mciLoadCommandResource` | local, 1049 bytes | winmm (local) -> StringCchCopyW, mciEatCommandEntry, mciInitDeviceList | yes, mmddk.h (legacy DDK, driver side) |
-| 44 | `mciSendCommandA` | local, 2194 bytes | winmm (local) -> AllocUnicodeStr, FindCommandItem, StringCbCopyA | yes, mmsystem.h (Learn, MCI) |
-| 45 | `mciSendCommandW` | local, 297 bytes | winmm (local) -> mciInitDeviceList, mciSendCommandInternal | yes, mmsystem.h (Learn, MCI) |
-| 46 | `mciSendStringA` | local, 542 bytes | winmm (local) -> AllocUnicodeStr, UnicodeStrToAsciiStr, mciSendStringW | yes, mmsystem.h (Learn, MCI) |
-| 47 | `mciSendStringW` | local, 108 bytes | winmm (local) -> mciInitDeviceList, mciSendStringInternal | yes, mmsystem.h (Learn, MCI) |
-| 48 | `mciSetDriverData` | local, 171 bytes | winmm (local) | yes, mmddk.h (legacy DDK, driver side) |
-| 49 | `mciSetYieldProc` | local, 131 bytes | winmm (local) | yes, mmsystem.h (Learn, MCI) |
+| 31 | `mciDriverNotify` | local, 18 bytes | user32!PostMessageW(hwnd, MM_MCINOTIFY 0x3b9, status, devid) | not vendored (legacy DDK mmddk.h, driver side) |
+| 32 | `mciDriverYield` | local, 174 bytes | winmm (local) | not vendored (legacy DDK mmddk.h, driver side) |
+| 33 | `mciFreeCommandResource` | local, 432 bytes | winmm (local) | not vendored (legacy DDK mmddk.h, driver side) |
+| 34 | `mciGetCreatorTask` | local, 109 bytes | winmm (local) | not vendored as a function page (name in MCI function lists at most) |
+| 35 | `mciGetDeviceIDA` | local, 84 bytes | winmm (local) -> AllocUnicodeStr, mciGetDeviceIDInternal | not vendored as a function page (name in MCI function lists at most) |
+| 36 | `mciGetDeviceIDFromElementIDA` | local, 77 bytes | winmm (local) -> AllocUnicodeStr, mciGetDeviceIDFromElementIDW | not vendored as a function page (name in MCI function lists at most) |
+| 37 | `mciGetDeviceIDFromElementIDW` | local, 266 bytes | winmm (local) | not vendored as a function page (name in MCI function lists at most) |
+| 38 | `mciGetDeviceIDW` | local, 36 bytes | winmm (local) -> mciGetDeviceIDInternal | not vendored as a function page (name in MCI function lists at most) |
+| 39 | `mciGetDriverData` | local, 166 bytes | winmm (local) | not vendored (legacy DDK mmddk.h, driver side) |
+| 40 | `mciGetErrorStringA` | local, 286 bytes | winmm (local) | not vendored as a function page (name in MCI function lists at most) |
+| 41 | `mciGetErrorStringW` | local, 287 bytes | winmm (local) | not vendored as a function page (name in MCI function lists at most) |
+| 42 | `mciGetYieldProc` | local, 146 bytes | winmm (local) | not vendored as a function page (name in MCI function lists at most) |
+| 43 | `mciLoadCommandResource` | local, 1049 bytes | winmm (local) -> StringCchCopyW, mciEatCommandEntry, mciInitDeviceList | not vendored (legacy DDK mmddk.h, driver side) |
+| 44 | `mciSendCommandA` | local, 2194 bytes | winmm (local) -> AllocUnicodeStr, FindCommandItem, StringCbCopyA | not vendored as a function page (name in MCI function lists at most) |
+| 45 | `mciSendCommandW` | local, 297 bytes | winmm (local) -> mciInitDeviceList, mciSendCommandInternal | not vendored as a function page (name in MCI function lists at most) |
+| 46 | `mciSendStringA` | local, 542 bytes | winmm (local) -> AllocUnicodeStr, UnicodeStrToAsciiStr, mciSendStringW | not vendored as a function page (name in MCI function lists at most) |
+| 47 | `mciSendStringW` | local, 108 bytes | winmm (local) -> mciInitDeviceList, mciSendStringInternal | not vendored as a function page (name in MCI function lists at most) |
+| 48 | `mciSetDriverData` | local, 171 bytes | winmm (local) | not vendored (legacy DDK mmddk.h, driver side) |
+| 49 | `mciSetYieldProc` | local, 131 bytes | winmm (local) | not vendored as a function page (name in MCI function lists at most) |
 | 50 | `midiConnect` | 7-byte `jmp [IAT]` thunk | winmmbase!midiConnect (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 51 | `midiDisconnect` | 7-byte `jmp [IAT]` thunk | winmmbase!midiDisconnect (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 52 | `midiInAddBuffer` | 7-byte `jmp [IAT]` thunk | winmmbase!midiInAddBuffer (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
@@ -305,22 +370,22 @@ pages, else the header family where the vendored docs only mention the name.
 | 131 | `mmioStringToFOURCCA` | 7-byte `jmp [IAT]` thunk | winmmbase!mmioStringToFOURCCA (via api-ms-win-mm-misc-l1-1-0) | yes (mmiscapi) |
 | 132 | `mmioStringToFOURCCW` | 7-byte `jmp [IAT]` thunk | winmmbase!mmioStringToFOURCCW (via api-ms-win-mm-misc-l1-1-0) | yes (mmiscapi) |
 | 133 | `mmioWrite` | 7-byte `jmp [IAT]` thunk | winmmbase!mmioWrite (via api-ms-win-mm-misc-l1-1-0) | yes (mmiscapi) |
-| 134 | `mmsystemGetVersion` | local, 6 bytes | constant: `mov eax,0x30a; ret` | header only (mmsystem.h), no doc page |
-| 135 | `sndPlaySoundA` | local, 10 bytes | winmm!PlaySoundA(psz, NULL, fuSound) (tail jmp) | yes, mmsystem.h (Learn) |
-| 136 | `sndPlaySoundW` | local, 10 bytes | winmm!sndPlaySoundI(psz, NULL, fuSound) (tail jmp) | yes, mmsystem.h (Learn) |
+| 134 | `mmsystemGetVersion` | local, 6 bytes | constant: `mov eax,0x30a; ret` | no function page; name listed in Multimedia/multimedia-functions.md |
+| 135 | `sndPlaySoundA` | local, 10 bytes | winmm!PlaySoundA(psz, NULL, fuSound) (tail jmp) | not vendored (mentioned only) |
+| 136 | `sndPlaySoundW` | local, 10 bytes | winmm!sndPlaySoundI(psz, NULL, fuSound) (tail jmp) | not vendored (mentioned only) |
 | 137 | `timeBeginPeriod` | 7-byte `jmp [IAT]` thunk | kernel32!timeBeginPeriod (via api-ms-win-mm-time-l1-1-0) | yes (timeapi) |
 | 138 | `timeEndPeriod` | 7-byte `jmp [IAT]` thunk | kernel32!timeEndPeriod (via api-ms-win-mm-time-l1-1-0) | yes (timeapi) |
 | 139 | `timeGetDevCaps` | 7-byte `jmp [IAT]` thunk | kernel32!timeGetDevCaps (via api-ms-win-mm-time-l1-1-0) | yes (timeapi) |
 | 140 | `timeGetSystemTime` | 7-byte `jmp [IAT]` thunk | kernel32!timeGetSystemTime (via api-ms-win-mm-time-l1-1-0) | yes (timeapi) |
 | 141 | `timeGetTime` | 7-byte `jmp [IAT]` thunk | kernel32!timeGetTime (via api-ms-win-mm-time-l1-1-0) | yes (timeapi) |
-| 142 | `timeKillEvent` | local, 348 bytes | winmm (local) | yes, timeapi/mmsystem.h (Learn, obsolete) |
-| 143 | `timeSetEvent` | local, 393 bytes | winmm (local) -> FUN_1800094e8, TimeInitThread, timeThreadSetEvent | yes, timeapi/mmsystem.h (Learn, obsolete) |
+| 142 | `timeKillEvent` | local, 348 bytes | winmm (local) | no vendored function page (conceptual timer pages only) |
+| 143 | `timeSetEvent` | local, 393 bytes | winmm (local) -> FUN_1800094e8, TimeInitThread, timeThreadSetEvent | no vendored function page (conceptual timer pages only) |
 | 144 | `waveInAddBuffer` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInAddBuffer (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 145 | `waveInClose` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInClose (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 146 | `waveInGetDevCapsA` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetDevCapsA (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 147 | `waveInGetDevCapsW` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetDevCapsW (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
-| 148 | `waveInGetErrorTextA` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextA (via api-ms-win-mm-mme-l1-1-0) | yes, mmeapi |
-| 149 | `waveInGetErrorTextW` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextW (via api-ms-win-mm-mme-l1-1-0) | yes, mmeapi |
+| 148 | `waveInGetErrorTextA` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextA (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi; generic page, the corpus for-symbol link misses it) |
+| 149 | `waveInGetErrorTextW` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextW (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi; generic page, the corpus for-symbol link misses it) |
 | 150 | `waveInGetID` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetID (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 151 | `waveInGetNumDevs` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetNumDevs (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 152 | `waveInGetPosition` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetPosition (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
@@ -335,8 +400,8 @@ pages, else the header family where the vendored docs only mention the name.
 | 161 | `waveOutClose` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutClose (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 162 | `waveOutGetDevCapsA` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutGetDevCapsA (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 163 | `waveOutGetDevCapsW` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutGetDevCapsW (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
-| 164 | `waveOutGetErrorTextA` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextA (via api-ms-win-mm-mme-l1-1-0) **(shared body)** | yes, mmeapi |
-| 165 | `waveOutGetErrorTextW` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextW (via api-ms-win-mm-mme-l1-1-0) **(shared body)** | yes, mmeapi |
+| 164 | `waveOutGetErrorTextA` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextA (via api-ms-win-mm-mme-l1-1-0) **(shared body)** | yes (mmeapi; generic page, the corpus for-symbol link misses it) |
+| 165 | `waveOutGetErrorTextW` | 7-byte `jmp [IAT]` thunk | winmmbase!waveInGetErrorTextW (via api-ms-win-mm-mme-l1-1-0) **(shared body)** | yes (mmeapi; generic page, the corpus for-symbol link misses it) |
 | 166 | `waveOutGetID` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutGetID (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 167 | `waveOutGetNumDevs` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutGetNumDevs (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 168 | `waveOutGetPitch` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutGetPitch (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
@@ -354,3 +419,47 @@ pages, else the header family where the vendored docs only mention the name.
 | 180 | `waveOutSetVolume` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutSetVolume (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 181 | `waveOutUnprepareHeader` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutUnprepareHeader (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
 | 182 | `waveOutWrite` | 7-byte `jmp [IAT]` thunk | winmmbase!waveOutWrite (via api-ms-win-mm-mme-l1-1-0) | yes (mmeapi) |
+
+## Verification (adversarial fact-check pass)
+
+Re-run against the reference corpus API (`/api/modules/{winmm,winmmbase}/imports`, `/api/function/<mod>/<rva>`
+plus `/asm` and `/decomp` for all 181 winmm exports, and the mmdevapi ordinals), the export JSONs in `tools/`, and
+`/api/docs?q=` for documentation. No VM run was made in this pass.
+
+Confirmed exactly:
+
+* 181 winmm exports, ordinals 2..182, no forwarders; 140 are 7-byte `jmp [rip+IAT]` thunks and 41 are local. The
+  import table matches: 102 api-ms-win-mm-mme-l1-1-0 (delay), 22 api-ms-win-mm-misc-l1-1-0 (delay),
+  12 WINMMBASE.dll (delay; 11 back exports plus winmmbaseFreeMMEHandles), 5 api-ms-win-mm-time-l1-1-0 (static,
+  kernel32). Every thunk's IAT slot imports the export's own name; every local body size in the appendix matches.
+* Ordinal 2 and PlaySound share RVA 0x98b0 (`jmp PlaySoundA`); the shared winmmbase bodies (0x36f0, 0x7d40/0x7d60,
+  0x10320/0x10340) are confirmed by both export tables and by the IAT targets.
+* joyGetNumDevs = `mov eax,0x10; ret`; mmsystemGetVersion = `mov eax,0x30a; ret`; sndPlaySoundA/W, mciDriverNotify,
+  joyConfigChanged (non-zero -> 0xa5; zero -> close all, `PostMessageW(0xffff, registered msg, 0, 0)`), mciExecute
+  (MessageBoxW on failure, returns FALSE; TRUE when the low word of the MCI error is 0), mmGetCurrentTask, the
+  winmmbase WOW helpers and sndOpenSound all match the decomp.
+* winmmbase imports timeSetEvent/timeKillEvent from api-ms-win-mm-misc-l2-1-0 -> winmm 0x2a20/0x2e50, and
+  mmdevapi ordinals 3 and 5 (delay). The 35 mmdevapi exports and the 30 ordinal names match the corpus.
+* winmmbase has 141 named exports; the five not in winmm are the ones listed in section 3.
+* All family counts and the headless split (41 + 31 + 79 + 28 + 2) sum to 181 and match the export names.
+
+Corrected in place:
+
+* GetDriverModuleHandle does **not** jump through the DrvGetModuleHandle IAT slot; winmm imports it by its own
+  name (slot 0x1f048), and the import resolves to the same winmmbase body 0x36f0.
+* Documentation column: timeSetEvent/timeKillEvent, PlaySoundA/W, sndPlaySoundA/W, every MCI function and the MCI
+  driver-side functions have **no vendored function page**; earlier rows said "yes ... (Learn)". The MCI
+  driver-side functions have no vendored mention at all. waveIn/OutGetErrorTextA/W do have generic mmeapi pages,
+  but the corpus for-symbol link misses them. mmsystemGetVersion is listed in Multimedia/multimedia-functions.md.
+* The mmTask "signal/block round trip with bounded wait" was not safe: mmTaskBlock has no timeout.
+
+Added (missed in the first draft): the exact DriverCallback dispatch for every DCB type, including DCB_TASK
+(PostThreadMessageA plus mmTaskSignal, so this resolves the earlier "partially decompiled" unknown); the mmTask*
+semantics; WOWAppExit's task-0 and avicap32 paths; the Audiosrv wait of up to about 120 s in the first
+`*GetNumDevs`; the error-text gates; and the argument gates in section 7 (time, timer events, joystick, WAVEHDR,
+waveOutOpen, midiStreamOpen).
+
+Still UNVERIFIED (VM only): whether the GS Wavetable Synth enumerates with zero endpoints; joyOpen's result with no
+joystick; PlaySound(SND_MEMORY) headless result; WAVE_MAPPER open with zero devices (BADDEVICEID vs NODRIVER);
+auxGetNumDevs with HDA; equality of the endpoint count and waveOut/waveInGetNumDevs; the initial WOW value of new
+MME handles; everything below the wdmaud.drv / MCI driver boundary.
