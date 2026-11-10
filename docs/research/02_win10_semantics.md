@@ -104,6 +104,26 @@ buffer pump all live in wdmaud.drv **[inference: wdmaud.drv not in corpus]**.
   != -1 -> 2; id == -1 (mapper) -> `waveReferenceDriverById(-1)` on an empty
   list -> 2. So `waveOutGetDevCaps(WAVE_MAPPER)` with 0 devices -> 2 **[VM]**.
 * `joyGetNumDevs` returns the constant **16** regardless of hardware.
+* **[VM, pass 2: audprobe runs `winmm-audio-r1/hda-duplex-wav` and
+  `winmm-audio-r2/noaudio` under ~/w10lab/runs]** Observed counts
+  (waveOut/waveIn/midiOut/midiIn/mixer/aux/joy):
+  no audio device `0/0/1/0/0/0/16`; one QEMU `intel-hda` + `hda-duplex`
+  `1/1/1/0/2/0/16` (one mixer per endpoint: "Speakers (High Definition
+  Audio" and "Line In (High Definition Audio "). MIDI out is **1** (Microsoft
+  GS Wavetable Synth) even with no audio endpoint, midiIn and aux are 0 in
+  both. Device names are truncated to 31 chars (MAXPNAMELEN).
+  With 0 devices: `waveOutGetDevCaps(WAVE_MAPPER/0)`, `waveInGetDevCaps`,
+  `mixerGetDevCaps(-1/0)`, `auxGetDevCaps(-1/0)`, `auxGetVolume` -> **2**;
+  `midiOutGetDevCaps(MIDI_MAPPER)` -> 0 ("Microsoft MIDI Mapper", wTechnology
+  5 MOD_MAPPER, dwSupport 0x9), `midiOutGetDevCaps(0)` -> 0 ("Microsoft GS
+  Wavetable Synth", technology 7 MOD_SWSYNTH, 32 voices), id 1 -> 2;
+  `midiInGetDevCaps(-1)` -> 2. With HDA: `waveOutGetDevCaps(-1)` -> 0
+  "Microsoft Sound Mapper" (wMid 1, wPid 2, dwFormats 0xFFFFF), id 0 wPid
+  65535, id 1 -> 2; `mixerGetDevCaps(-1)` -> 2 (there is no mixer mapper).
+* **[VM]** `midiOutOpen(MIDI_MAPPER)` with no audio endpoint returns **1
+  (MMSYSERR_ERROR)** (the synth device exists, its driver fails the open);
+  with HDA present it returns 0. A zero-MIDI-device configuration was not
+  observed on this guest, so the 2/6 paths of section 3 stay decomp-only.
 
 ## 2. waveOut / waveIn
 
@@ -135,7 +155,11 @@ Exact validation order:
 9. Mapper requested and the mapper entry's driver proc is NULL -> try every device id
    0..N-1 recursively, returning the first success, else the last error
    (initial value 4). With WAVE_MAPPED: ask the preferred-device logic
-   (internal message 0x805) and reopen through it.
+   (internal message 0x805) and reopen through it. **[fact-check pass 2]**
+   that WAVE_MAPPED sub-branch sits under `uDeviceID == WAVE_MAPPER`, which
+   the 0x7E04 mask of step 4 already rejects with 10, so it is unreachable
+   from the public API. WAVE_MAPPED with a specific id resolves the mapper
+   driver (step 8) and opens it with `uMappedDeviceID = id`.
 10. Otherwise allocate a handle (`NewHandle(type 1)`; failure -> **7**), mark
     it "busy" (flag 2), send **WODM_OPEN (5)** (WIDM_OPEN 0x34 for input) to
     the driver with a `WAVEOPENDESC {hWave, lpFormat, dwCallback, dwInstance,
@@ -145,7 +169,12 @@ Exact validation order:
 Format validation (WAVEFORMATEX fields, nBlockAlign/nAvgBytesPerSec
 consistency, WAVE_FORMAT_EXTENSIBLE cbSize >= 22, SubFormat) is entirely the
 driver's: WAVERR_BADFORMAT (32) for unsupported formats with QUERY and with a
-real open **[inference/VM]**. Through the mapper, msacm can convert PCM
+real open **[inference/VM]**. **[VM, audprobe with HDA]** WAVE_FORMAT_QUERY
+with plain WAVE_FORMAT_PCM: 1 and 2 channels at 8/16/24/32 bits and every
+rate 8000..192000 -> **0**, both through WAVE_MAPPER and device 0; 6
+channels -> **32** on both; WAVE_FORMAT_IEEE_FLOAT 2ch/48 kHz/32-bit through
+the mapper -> 0. With 0 devices every query -> 2. (Do not CHECK the 24/32-bit
+PCM acceptance on other hardware; it comes from the shared-mode engine.) Through the mapper, msacm can convert PCM
 formats the endpoint does not natively take (so mapper accepts more than a
 direct id; WAVE_FORMAT_DIRECT disables ACM) **[VM]**.
 
@@ -203,8 +232,16 @@ All validate the handle (type 1) after `ClientUpdatePnpInfo` and forward:
 | waveOutSetPitch / SetPlaybackRate | handle | 0x0F / 0x13 (wdmaud answers 8 NOTSUPPORTED **[VM]**) |
 | waveOutGetVolume (!0x10150) | `pdwVolume == NULL` -> 11; accepts a handle OR a device id (0xFFFF -> mapper) | 0x10 |
 | waveOutSetVolume (!0x10210) | handle or id | 0x11 |
-| waveOutGetID (!0x11c00) | `puDeviceID == NULL` -> 11 first, then handle (5); returns the id stored at open (no driver call). For a mapper-opened handle it is the id the open resolved **[VM]** |
+| waveOutGetID (!0x11c00) | `puDeviceID == NULL` -> 11 first, then handle (5); returns the id stored at open (no driver call). **[fact-check pass 2]** For a mapper-opened handle that stored id is the requested one, so it returns **0xFFFFFFFF (WAVE_MAPPER)**, not the device the mapper picked (decomp: `waveOutOpen` stores `UVar9` at handle+0x18; VM: audprobe `play handle devid=4294967295`). midiOutGetID behaves the same for MIDI_MAPPER (VM `midi id=4294967295`) |
 | waveOutMessage (!0xfd70) | if not a valid handle, the value is treated as a device id (`waveIDMessage`): id >= count -> 2 | any |
+
+**[VM, audprobe with HDA, mapper open 44.1 kHz/16/2 CALLBACK_EVENT]**
+Prepare -> 0, dwFlags 0x2; right after Write dwFlags 0x12 (PREPARED|INQUEUE);
+after completion 0x3 (DONE|PREPARED); 1.2 s of audio completed in ~1.19 s.
+`waveOutGetPosition` with wType TIME_SAMPLES and TIME_BYTES is honoured, but a
+TIME_MS request comes back with **wType rewritten to TIME_BYTES (4)**.
+`waveOutGetVolume` on the mapper handle -> 0 (0xFFFFFFFF). Reset, Unprepare,
+Close -> 0. waveIn through the mapper (44.1 kHz/16/1) also worked.
 
 Close semantics: `waveOutClose` with queued buffers returns whatever the
 driver says (classic contract: WAVERR_STILLPLAYING 33) **[VM]**; after Reset
@@ -494,7 +531,11 @@ for the 15.625 ms tick; 0x37 = 55 if the query fails or the value is
   then the `MediaPath` from the Setup key.
 * Not found + SND_NODEFAULT -> **FALSE**; without NODEFAULT the default
   system sound is played **(never do that in tests)**.
-* Zero devices: a synchronous memory play returns FALSE (open fails) **[VM]**.
+* Zero devices: a synchronous memory play returns FALSE (open fails).
+  **[VM confirmed, audprobe noaudio: `PlaySoundA(mem, NULL,
+  SND_MEMORY|SND_SYNC|SND_NODEFAULT)` -> FALSE, immediately]**; GetLastError
+  read 6 there but is not set reliably, do not CHECK it. With HDA the same
+  0.4 s image returned TRUE after ~0.42 s.
 Test only with in-memory silent WAVE images, SND_MEMORY (+ SND_NODEFAULT),
 and stop with `PlaySound(NULL, NULL, 0)`.
 
@@ -560,7 +601,8 @@ and stop with `PlaySound(NULL, NULL, 0)`.
   id > 15 -> 165; already captured -> 166. `joyReleaseCapture`: id > 15 ->
   165; never-opened id -> 11.
 On a VM without a game controller every id 0..15 reports 165 from
-joyGetPosEx/joyGetDevCaps **[VM]**.
+joyGetPosEx/joyGetDevCaps **[VM: id 0 observed 165 for both in audprobe,
+with and without audio]**.
 
 ## 11. Installable driver functions (winmmbase)
 
