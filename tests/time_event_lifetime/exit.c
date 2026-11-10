@@ -123,7 +123,9 @@ TEST(tl_exit_worker_pins_winmm) {
     tl_kv *k2 = calloc(1, sizeof *k2);
     EXPECT_EQ(tl_run("tl_exit_pin", "plain", 15000, k2), 0);
     KV_EQ(k2, "done", 1);
-    t_note("without a timer event, winmm after FreeLibrary still loaded = %lld (other loads may pin it)", tl_get(k2, "after", -1));
+    KV_EQ(k2, "preloaded", 0);
+    KV_EQ(k2, "free", 1);
+    KV_EQ(k2, "after", 0);       /* [VM] without a worker nothing else pins winmm: it unloads */
     free(kv); free(k2);
 }
 
