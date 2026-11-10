@@ -244,40 +244,48 @@ TEST(mh_thread_waveout_four_concurrent) {
     CloseHandle(go);
 }
 
-/* One thread polls waveOutGetPosition while another closes the handle: only 0 (before), 5 (after) or 12
- * (HANDLEBUSY: the close has marked the handle busy and the poll got the per-handle lock in between) occur. */
-typedef struct { HWAVEOUT h; volatile LONG stop; DWORD n0, n5, n12, nother, last_other, polls; } poll_t;
+/* One thread polls waveOutGetPosition while another thread plays, pauses, restarts and resets the same handle:
+ * every poll returns 0. The close comes only after the poller has been joined; polls after it return 5.
+ * Racing waveOutClose against a concurrent call on the same handle is NOT safe on Win10: the VM run of a
+ * close-while-polling variant crashed with an access violation in the polling thread (the handle is freed between
+ * the caller's ValidateHandle and its EnterCriticalSection on the per-handle lock), so callers must serialize
+ * close against all other use, and the test does too. */
+typedef struct { HWAVEOUT h; volatile LONG stop; DWORD n0, nother, last_other, polls; } poll_t;
 static DWORD WINAPI poll_pos_thread(void *p) {
     poll_t *s = (poll_t *)p;
-    while (!s->stop && s->polls < 2000000) {
+    while (!s->stop && s->polls < 5000000) {
         MMTIME mt; mt.wType = TIME_BYTES;
         MMRESULT r = U(waveOutGetPosition)(s->h, &mt, sizeof mt);
         s->polls++;
-        if (r == 0) s->n0++; else if (r == 5) s->n5++; else if (r == 12) s->n12++; else { s->nother++; s->last_other = r; }
-        if (r == 5 && s->n5 > 200) break;   /* well past the close */
+        if (r == 0) s->n0++; else { s->nother++; s->last_other = r; }
     }
     return 0;
 }
-TEST(mh_thread_waveout_close_while_polling) {
-    REQUIRE(U(waveOutOpen)); REQUIRE(U(waveOutClose)); REQUIRE(U(waveOutGetPosition));
+TEST(mh_thread_waveout_poll_while_controlling) {
+    REQUIRE(U(waveOutOpen)); REQUIRE(U(waveOutClose)); REQUIRE(U(waveOutGetPosition)); REQUIRE(U(waveOutPause));
+    REQUIRE(U(waveOutRestart)); REQUIRE(U(waveOutReset));
     if (!mh_devs()->wo) { t_note("no waveOut device"); return; }
-    for (int round = 0; round < 3; round++) {
+    for (int round = 0; round < 2; round++) {
         poll_t s; memset(&s, 0, sizeof s);
         EXPECT_EQ(mh_waveout_open(&s.h, NULL), 0);
         if (!s.h) return;
         HANDLE t = start_thread(poll_pos_thread, &s);
         CHECK(t != NULL);
         if (!t) { U(waveOutClose)(s.h); return; }
-        Sleep(30);
-        EXPECT_EQ(U(waveOutClose)(s.h), 0);
-        Sleep(30);
+        EXPECT_EQ(mh_play_silence(s.h, 100, 3000), 0);
+        EXPECT_EQ(U(waveOutPause)(s.h), 0);
+        Sleep(20);
+        EXPECT_EQ(U(waveOutRestart)(s.h), 0);
+        EXPECT_EQ(U(waveOutReset)(s.h), 0);
+        EXPECT_EQ(mh_play_silence(s.h, 50, 3000), 0);
         s.stop = 1;
         CHECK(join(t, 5000));
         EXPECT_EQ(s.nother, 0);
-        CHECK(s.n0 > 0);   /* polls before the close saw a live handle */
-        CHECK(s.n5 > 0);   /* and after it an invalid one */
-        t_note("round %d: polls=%lu ok=%lu invalhandle=%lu busy=%lu other=%lu(last %lu)", round, s.polls, s.n0, s.n5,
-               s.n12, s.nother, s.last_other);
+        CHECK(s.n0 > 0);
+        t_note("round %d: polls=%lu ok=%lu other=%lu(last %lu)", round, s.polls, s.n0, s.nother, s.last_other);
+        EXPECT_EQ(U(waveOutClose)(s.h), 0);
+        MMTIME mt; mt.wType = TIME_BYTES;
+        EXPECT_EQ(U(waveOutGetPosition)(s.h, &mt, sizeof mt), MMSYSERR_INVALHANDLE);
     }
 }
 
