@@ -9,7 +9,8 @@
  */
 #include "te.h"
 
-#define TE_PREQ() do { TE_REQUIRE(); REQUIRE(U(timeBeginPeriod)); REQUIRE(U(timeEndPeriod)); REQUIRE(U(timeGetDevCaps)); } while (0)
+#define TE_PREQ() do { TE_REQUIRE(); REQUIRE(U(timeBeginPeriod)); REQUIRE(U(timeEndPeriod)); REQUIRE(U(timeGetDevCaps)); \
+    if (te_umax() <= te_pmin()) { t_skip("no counted period window (wPeriodMin %u, uMax %u)", te_pmin(), te_umax()); return; } } while (0)
 
 static void te_period_case(UINT delay, UINT res, UINT fl) {
     UINT umax = te_umax(), pmin = te_pmin();
