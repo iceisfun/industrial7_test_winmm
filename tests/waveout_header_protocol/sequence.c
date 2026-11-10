@@ -333,3 +333,47 @@ TEST(whp_seq_many_prepared_headers)
     EXPECT_EQ(bad, 0);
     whp_close(h, ev);
 }
+
+/* ---- observations: when dwBytesRecorded is rewritten, whether dwLoops repeats ---------------------------------- */
+
+TEST(whp_seq_bytesrecorded_timeline)
+{
+    REQUIRE(U(waveOutPause)); REQUIRE(U(waveOutRestart));
+    HWAVEOUT h; HANDLE ev; if (!whp_need_dev(&h, &ev)) return;
+    DWORD len; char *buf = whp_silence(60, &len);
+    WAVEHDR w; whp_hdr_init(&w, 0, buf, len);
+    w.dwBytesRecorded = 0xC3C3C3C3u;
+    EXPECT_EQ(U(waveOutPause)(h), MMSYSERR_NOERROR);
+    EXPECT_EQ(U(waveOutPrepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
+    DWORD after_prep = w.dwBytesRecorded;
+    EXPECT_EQ(U(waveOutWrite)(h, &w, sizeof w), MMSYSERR_NOERROR);
+    DWORD after_write = w.dwBytesRecorded;
+    EXPECT_EQ(U(waveOutRestart)(h), MMSYSERR_NOERROR);
+    CHECK(whp_wait_done(&w, ev, WHP_WAIT_MS));
+    t_note("dwBytesRecorded: preset 0xC3C3C3C3, after prepare 0x%lx, after write (paused) 0x%lx, after done 0x%lx",
+           after_prep, after_write, w.dwBytesRecorded);
+    EXPECT_EQ(after_prep, 0xC3C3C3C3u);
+    EXPECT_EQ(U(waveOutUnprepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
+    whp_close(h, ev);
+}
+
+TEST(whp_seq_loop_count_timing_note)
+{
+    HWAVEOUT h; HANDLE ev; if (!whp_need_dev(&h, &ev)) return;
+    DWORD len; char *buf = whp_silence(150, &len);
+    static const DWORD loops[] = { 1, 4 };
+    for (int i = 0; i < 2; i++) {
+        WAVEHDR w; whp_hdr_init(&w, WHDR_BEGINLOOP | WHDR_ENDLOOP, buf, len);
+        w.dwLoops = loops[i];
+        EXPECT_EQ(U(waveOutPrepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
+        DWORD t0 = GetTickCount();
+        EXPECT_EQ(U(waveOutWrite)(h, &w, sizeof w), MMSYSERR_NOERROR);
+        int done = whp_wait_done(&w, ev, WHP_WAIT_MS);
+        CHECK(done);
+        t_note("150 ms buffer dwLoops=%lu: done after ~%lu ms, dwLoops after 0x%lx flags 0x%lx", loops[i],
+               GetTickCount() - t0, w.dwLoops, w.dwFlags);
+        U(waveOutReset)(h);
+        EXPECT_EQ(U(waveOutUnprepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
+    }
+    whp_close(h, ev);
+}

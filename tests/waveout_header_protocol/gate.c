@@ -327,18 +327,22 @@ TEST(whp_gate_repeat_stable)
     }
 }
 
-/* The gate does not clear or set GetLastError in any way the caller should depend on: just record it. */
-TEST(whp_gate_last_error_observed)
+/* The gate and the handle rejection leave GetLastError alone (decomp: no SetLastError on these paths; VM). */
+TEST(whp_gate_last_error_untouched)
 {
     REQUIRE(whp_have_all());
     char buf[8] = {0}; WAVEHDR h; whp_hdr_init(&h, 0x20, buf, sizeof buf);
     SetLastError(0xBEEF);
     MMRESULT r = U(waveOutWrite)(NULL, &h, sizeof h);
     EXPECT_EQ(r, MMSYSERR_INVALPARAM);
-    t_note("GetLastError after gate rejection = %lu (preset 0xBEEF)", GetLastError());
+    DWORD e1 = GetLastError();
+    t_note("GetLastError after gate rejection = %lu (preset 0xBEEF)", e1);
+    EXPECT_EQ(e1, 0xBEEF);
     whp_hdr_init(&h, 0, buf, sizeof buf);
     SetLastError(0xBEEF);
     r = U(waveOutPrepareHeader)(NULL, &h, sizeof h);
     EXPECT_EQ(r, MMSYSERR_INVALHANDLE);
-    t_note("GetLastError after handle rejection = %lu (preset 0xBEEF)", GetLastError());
+    DWORD e2 = GetLastError();
+    t_note("GetLastError after handle rejection = %lu (preset 0xBEEF)", e2);
+    EXPECT_EQ(e2, 0xBEEF);
 }

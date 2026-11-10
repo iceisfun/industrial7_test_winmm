@@ -127,7 +127,9 @@ TEST(whp_dev_write_inqueue_then_done)
     CHECK(w.lpData == buf);
     EXPECT_EQ(w.dwBufferLength, len);
     EXPECT_EQ(w.dwUser, 0xFEEDu);
+    /* VM: the output path rewrites dwBytesRecorded to 0 on completion (prepare leaves it alone) */
     t_note("output dwBytesRecorded after done = 0x%lx (preset 0xA5A5A5A5)", w.dwBytesRecorded);
+    EXPECT_EQ(w.dwBytesRecorded, 0);
     t_note("after done lpNext=%p reserved=0x%llx", (void *)w.lpNext, (unsigned long long)w.reserved);
     EXPECT_EQ(U(waveOutUnprepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
     EXPECT_EQ(w.dwFlags, WHDR_DONE);
@@ -327,6 +329,7 @@ TEST(whp_dev_close_with_prepared_unqueued)
     EXPECT_EQ(U(waveOutPrepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
     MMRESULT rc = U(waveOutClose)(h);
     t_note("waveOutClose with a prepared idle header = %u", rc);
+    EXPECT_EQ(rc, MMSYSERR_NOERROR);
     if (rc != MMSYSERR_NOERROR) {
         EXPECT_EQ(U(waveOutUnprepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
         EXPECT_EQ(U(waveOutClose)(h), MMSYSERR_NOERROR);
@@ -510,6 +513,9 @@ TEST(whp_dev_unaligned_length_buffer)
     MMRESULT rw = rp ? 0xFFFF : U(waveOutWrite)(h, &w, sizeof w);
     int done = rw == 0 ? whp_wait_done(&w, ev, WHP_WAIT_MS) : -1;
     t_note("len 2 (< nBlockAlign): prepare=%u write=%u done=%d", rp, rw, done);
+    EXPECT_EQ(rp, MMSYSERR_NOERROR);
+    EXPECT_EQ(rw, MMSYSERR_NOERROR);
+    CHECK(done == 1);
     U(waveOutReset)(h);
     if (rp == 0) U(waveOutUnprepareHeader)(h, &w, sizeof w);
     whp_close(h, ev);
@@ -569,6 +575,10 @@ TEST(whp_dev_internal_bit_after_prepare)
         DWORD after = w.dwFlags;
         int done = rw == 0 ? whp_wait_done(&w, ev, WHP_WAIT_MS) : -1;
         t_note("write with 0x%lx: %u flags right after 0x%lx done=%d final 0x%lx", extra[i], rw, after, done, w.dwFlags);
+        EXPECT_EQ(rw, MMSYSERR_NOERROR);
+        EXPECT_EQ(after, extra[i] | WHDR_PREPARED | WHDR_INQUEUE);
+        CHECK(done == 1);
+        EXPECT_EQ(w.dwFlags, extra[i] | WHDR_PREPARED | WHDR_DONE);
         U(waveOutReset)(h);
         w.dwFlags &= ~0x3000u;
         EXPECT_EQ(U(waveOutUnprepareHeader)(h, &w, sizeof w), MMSYSERR_NOERROR);
@@ -589,9 +599,13 @@ TEST(whp_dev_cross_handle_use)
     MMRESULT rw = U(waveOutWrite)(h2, &w, sizeof w);
     int done = rw == 0 ? whp_wait_done(&w, ev2, WHP_WAIT_MS) : -1;
     t_note("prepared on A, written on B: %u done=%d flags 0x%lx", rw, done, w.dwFlags);
+    EXPECT_EQ(rw, MMSYSERR_NOERROR);
+    CHECK(done == 1);
     U(waveOutReset)(h2);
     MMRESULT ru = U(waveOutUnprepareHeader)(h2, &w, sizeof w);
     t_note("unprepare on B: %u flags 0x%lx", ru, w.dwFlags);
+    EXPECT_EQ(ru, MMSYSERR_NOERROR);
+    EXPECT_EQ(w.dwFlags, WHDR_DONE);
     if (w.dwFlags & WHDR_PREPARED) U(waveOutUnprepareHeader)(h, &w, sizeof w);
     whp_close(h2, ev2);
     whp_close(h, ev);
