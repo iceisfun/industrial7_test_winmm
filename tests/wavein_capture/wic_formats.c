@@ -54,7 +54,8 @@ TEST(wic_fmt_query_direct_table) {
         WAVEFORMATEXTENSIBLE f; mk(&k_ok[i], &f);
         MMRESULT r = U(waveInOpen)(NULL, 0, &f.Format, 0, 0, WAVE_FORMAT_DIRECT_QUERY);
         CHECKF(r == 0 || r == WAVERR_BADFORMAT, "direct query %s -> %u", k_ok[i].n, r);
-        if (r == 0) ok++; else t_note("direct query %s -> %u", k_ok[i].n, r);
+        CHECKF(r == 0, "direct query %s -> %u", k_ok[i].n, r);   /* [VM] all accepted on HDA */
+        if (r == 0) ok++;
     }
     t_note("WAVE_FORMAT_DIRECT_QUERY on device 0: %d of %d accepted", ok, NOK);
 }
@@ -64,8 +65,7 @@ TEST(wic_fmt_query_mapper_direct_table) {
     for (int i = 0; i < NOK; i++) {
         WAVEFORMATEXTENSIBLE f; mk(&k_ok[i], &f);
         MMRESULT r = U(waveInOpen)(NULL, WAVE_MAPPER, &f.Format, 0, 0, WAVE_FORMAT_DIRECT_QUERY);
-        CHECKF(r == 0 || r == WAVERR_BADFORMAT, "mapper direct query %s -> %u", k_ok[i].n, r);
-        if (r) t_note("mapper direct query %s -> %u", k_ok[i].n, r);
+        CHECKF(r == 0, "mapper direct query %s -> %u", k_ok[i].n, r);   /* [VM] */
     }
 }
 
@@ -96,12 +96,15 @@ TEST(wic_fmt_bad_format_query_and_open) {
     UINT ids[] = {WAVE_MAPPER, 0};
     for (int i = 0; i < k; i++)
         for (int j = 0; j < 2; j++) {
+            /* [VM] the mapper answers BADFORMAT for everything; device 0 (wdmaud) rejects the malformed
+             * channel layouts (6 ch PCM, EXTENSIBLE with cbSize 0) as INVALPARAM, an unknown tag as BADFORMAT */
+            MMRESULT want = (ids[j] == WAVE_MAPPER || i == 0) ? WAVERR_BADFORMAT : MMSYSERR_INVALPARAM;
             MMRESULT q = U(waveInOpen)(NULL, ids[j], &b[i].f.Format, 0, 0, WAVE_FORMAT_QUERY);
-            CHECKF(q == WAVERR_BADFORMAT, "query %s id %d -> %u", b[i].n, (int)ids[j], q);
+            CHECKF(q == want, "query %s id %d -> %u", b[i].n, (int)ids[j], q);
             HWAVEIN h = (HWAVEIN)(ULONG_PTR)0x5555;
             HANDLE ev = CreateEventA(NULL, FALSE, FALSE, NULL);
             MMRESULT r = U(waveInOpen)(&h, ids[j], &b[i].f.Format, (DWORD_PTR)ev, 0, CALLBACK_EVENT);
-            CHECKF(r == WAVERR_BADFORMAT, "open %s id %d -> %u", b[i].n, (int)ids[j], r);
+            CHECKF(r == want, "open %s id %d -> %u", b[i].n, (int)ids[j], r);
             CHECK(h == NULL);
             EXPECT_EQ(WaitForSingleObject(ev, 0), WAIT_TIMEOUT);
             if (r == 0 && h) U(waveInClose)(h);
@@ -121,8 +124,10 @@ TEST(wic_fmt_odd_fields_observed) {
     for (int i = 0; i < k; i++) {
         MMRESULT m = U(waveInOpen)(NULL, WAVE_MAPPER, &t[i].f, 0, 0, WAVE_FORMAT_QUERY);
         MMRESULT d = U(waveInOpen)(NULL, 0, &t[i].f, 0, 0, WAVE_FORMAT_QUERY);
-        t_note("query %s: mapper %u device0 %u", t[i].n, m, d);
-        CHECK(m == 0 || m == WAVERR_BADFORMAT || m == MMSYSERR_INVALPARAM || m == MMSYSERR_NOTSUPPORTED || m == MMSYSERR_ERROR);
+        /* [VM] zero/odd fields are BADFORMAT on both; nBlockAlign and very low rates are not validated */
+        MMRESULT want = i < 4 ? WAVERR_BADFORMAT : MMSYSERR_NOERROR;
+        CHECKF(m == want, "query %s: mapper %u", t[i].n, m);
+        CHECKF(d == want, "query %s: device0 %u", t[i].n, d);
     }
 }
 

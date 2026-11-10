@@ -63,7 +63,7 @@ TEST(wic_open_mapped_flag_device0) {
     EXPECT_EQ(r, 0);
     if (s.h) {
         UINT id = 0x77; EXPECT_EQ(U(waveInGetID)(s.h, &id), 0);
-        t_note("WAVE_MAPPED id 0: GetID=%u", id);
+        EXPECT_EQ(id, 0);   /* [VM] WAVE_MAPPED keeps the requested id */
     }
     wic_teardown(&s);
 }
@@ -79,8 +79,7 @@ TEST(wic_open_direct_device0) {
     REQUIRE(U(waveInOpen)); NEED_DEV();
     wic_s s; WAVEFORMATEX f; wic_pcm(&f, 44100, 16, 1);
     MMRESULT r = wic_open_flags(&s, 0, &f, WAVE_FORMAT_DIRECT);
-    t_note("WAVE_FORMAT_DIRECT device 0 44100/16/1 -> %u", r);
-    CHECK(r == 0 || r == WAVERR_BADFORMAT);
+    EXPECT_EQ(r, 0);   /* [VM] 44.1 kHz/16/1 opens directly on the HDA line-in (shared-mode engine converts) */
     wic_teardown(&s);
 }
 
@@ -120,7 +119,7 @@ TEST(wic_prepare_sets_exactly_prepared) {
         EXPECT_EQ(s.hdr[i].dwUser, 0xABCDEF);
         EXPECT_EQ(s.hdr[i].dwBufferLength, 4410);
         EXPECT_EQ(s.hdr[i].lpData, s.mem[i]);
-        t_note("prepare: dwBytesRecorded preset 0x1234 -> 0x%lx", s.hdr[i].dwBytesRecorded);
+        EXPECT_EQ(s.hdr[i].dwBytesRecorded, 0x1234);   /* [VM] prepare leaves dwBytesRecorded alone */
     }
     EXPECT_EQ(wic_teardown(&s), 0);
 }
@@ -292,7 +291,7 @@ TEST(wic_capture_bytes_recorded_overwritten) {
     EXPECT_EQ(wic_buf(&s, 0, len), 0);
     s.hdr[0].dwBytesRecorded = 0x77777; s.hdr[0].dwUser = 0x5150;
     EXPECT_EQ(wic_add(&s, 0), 0);
-    t_note("AddBuffer: dwBytesRecorded preset 0x77777 -> 0x%lx", s.hdr[0].dwBytesRecorded);
+    EXPECT_EQ(s.hdr[0].dwBytesRecorded, 0);   /* [VM] AddBuffer zeroes dwBytesRecorded */
     EXPECT_EQ(U(waveInStart)(s.h), 0);
     CHECK(wic_wait_done(&s, 0, FIRST_MS));
     EXPECT_EQ(s.hdr[0].dwBytesRecorded, len);
@@ -363,8 +362,7 @@ TEST(wic_requeue_done_buffer) {
         EXPECT_EQ(s.hdr[i].dwBytesRecorded, len);
         /* AddBuffer again without re-preparing: DONE is cleared and INQUEUE set */
         EXPECT_EQ(wic_add(&s, i), 0);
-        CHECKF((s.hdr[i].dwFlags & ~WHDR_DONE) == 0x12, "requeue flags 0x%lx", s.hdr[i].dwFlags);
-        if (c == 0) t_note("re-queued DONE buffer flags right after AddBuffer: 0x%lx", s.hdr[i].dwFlags);
+        CHECKF(s.hdr[i].dwFlags == 0x12, "requeue flags 0x%lx", s.hdr[i].dwFlags);   /* [VM] DONE cleared */
         cycles++;
     }
     EXPECT_EQ(cycles, 6);
@@ -377,8 +375,7 @@ TEST(wic_start_twice) {
     EXPECT_EQ(wic_buf(&s, 0, wic_bytes_ms(wic_wfx(&s), 50)), 0); EXPECT_EQ(wic_add(&s, 0), 0);
     EXPECT_EQ(U(waveInStart)(s.h), 0);
     MMRESULT r2 = U(waveInStart)(s.h);
-    t_note("waveInStart while started -> %u", r2);
-    EXPECT_EQ(r2, 0);
+    EXPECT_EQ(r2, 0);   /* [VM] */
     CHECK(wic_wait_done(&s, 0, FIRST_MS));
     EXPECT_EQ(s.hdr[0].dwBytesRecorded, s.hdr[0].dwBufferLength);
     EXPECT_EQ(wic_teardown(&s), 0);
@@ -617,13 +614,13 @@ TEST(wic_odd_length_buffer) {
     /* 16-bit mono: 1001 bytes is not a whole number of blocks */
     EXPECT_EQ(wic_buf(&s, 0, 1001), 0);
     MMRESULT r = wic_add(&s, 0);
-    t_note("AddBuffer 1001 bytes (nBlockAlign 2) -> %u", r);
+    EXPECT_EQ(r, 0);   /* [VM] no block-alignment check on AddBuffer */
     if (r == 0) {
         EXPECT_EQ(U(waveInStart)(s.h), 0);
-        int d = wic_wait_done(&s, 0, FIRST_MS);
-        t_note("odd buffer done=%d recorded=%lu", d, s.hdr[0].dwBytesRecorded);
-        CHECK(d);
-        CHECK(s.hdr[0].dwBytesRecorded <= 1001);
+        CHECK(wic_wait_done(&s, 0, FIRST_MS));
+        /* [VM] the whole buffer is filled, including the trailing half frame */
+        EXPECT_EQ(s.hdr[0].dwBytesRecorded, 1001);
+        EXPECT_EQ(s.hdr[0].dwFlags, 3);
     }
     EXPECT_EQ(wic_teardown(&s), 0);
 }
@@ -632,14 +629,20 @@ TEST(wic_zero_length_buffer) {
     REQUIRE(U(waveInAddBuffer)); NEED_DEV();
     wic_s s; if (wic_open_std(&s, WAVE_MAPPER)) { wic_teardown(&s); return; }
     MMRESULT rp = wic_buf(&s, 0, 0);
-    t_note("PrepareHeader length 0 -> %u flags 0x%lx", rp, s.hdr[0].dwFlags);
+    EXPECT_EQ(rp, 0);
+    EXPECT_EQ(s.hdr[0].dwFlags, WHDR_PREPARED);
     if (rp == 0) {
-        MMRESULT r = wic_add(&s, 0);
-        t_note("AddBuffer length 0 -> %u flags 0x%lx", r, s.hdr[0].dwFlags);
+        EXPECT_EQ(wic_add(&s, 0), 0);      /* [VM] a zero-length buffer is accepted */
+        EXPECT_EQ(s.hdr[0].dwFlags, 0x12);
         EXPECT_EQ(wic_buf(&s, 1, wic_bytes_ms(wic_wfx(&s), 30)), 0); EXPECT_EQ(wic_add(&s, 1), 0);
         EXPECT_EQ(U(waveInStart)(s.h), 0);
-        CHECK(wic_wait_done(&s, 1, FIRST_MS));
-        t_note("zero-length buffer after stream: flags 0x%lx recorded %lu", s.hdr[0].dwFlags, s.hdr[0].dwBytesRecorded);
+        int d1 = wic_wait_done(&s, 1, 1500);
+        /* [VM] the empty buffer is returned DONE with 0 bytes; whether the buffer behind it completes is not
+         * pinned (it did not within 3 s on the VM) */
+        CHECK(wic_wait_done(&s, 0, 500));
+        EXPECT_EQ(s.hdr[0].dwFlags, WHDR_DONE | WHDR_PREPARED);
+        EXPECT_EQ(s.hdr[0].dwBytesRecorded, 0);
+        t_note("zero-length buffer: flags 0x%lx recorded %lu; next buffer done=%d", s.hdr[0].dwFlags, s.hdr[0].dwBytesRecorded, d1);
     }
     wic_teardown(&s);
 }
@@ -650,11 +653,47 @@ TEST(wic_message_interface_size) {
     ULONG sz = 0;
     MMRESULT r = U(waveInMessage)(s.h, 0x80C /* DRV_QUERYDEVICEINTERFACESIZE */, (DWORD_PTR)&sz, 0);
     t_note("waveInMessage(mapper handle, DRV_QUERYDEVICEINTERFACESIZE) -> %u size %lu", r, sz);
+    /* [VM] the wave mapper does not answer the interface-size query on a handle: NOTSUPPORTED, size untouched */
+    EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);
+    EXPECT_EQ(sz, 0);
     ULONG sz0 = 0;
     MMRESULT r0 = U(waveInMessage)((HWAVEIN)(ULONG_PTR)0, 0x80C, (DWORD_PTR)&sz0, 0);
     t_note("waveInMessage(id 0, DRV_QUERYDEVICEINTERFACESIZE) -> %u size %lu", r0, sz0);
-    EXPECT_EQ(r0, 0);
-    CHECK(sz0 > 2 && sz0 % 2 == 0);
+    /* [VM] a value that is not a handle is taken as a device id; the WDM capture driver answers 1 (ERROR) */
+    EXPECT_EQ(r0, MMSYSERR_ERROR);
+    EXPECT_EQ(sz0, 0);
     EXPECT_EQ(U(waveInMessage)((HWAVEIN)(ULONG_PTR)9999, 0x80C, (DWORD_PTR)&sz0, 0), MMSYSERR_BADDEVICEID);
+    EXPECT_EQ(wic_teardown(&s), 0);
+}
+
+TEST(wic_stop_then_reset_returns_rest) {
+    REQUIRE(U(waveInReset)); NEED_DEV();
+    wic_s s; if (wic_open_std(&s, WAVE_MAPPER)) { wic_teardown(&s); return; }
+    DWORD len = wic_bytes_ms(wic_wfx(&s), 30);
+    EXPECT_EQ(wic_buf(&s, 0, len), 0); EXPECT_EQ(wic_add(&s, 0), 0);
+    for (int i = 1; i < 4; i++) { EXPECT_EQ(wic_buf(&s, i, wic_bytes_ms(wic_wfx(&s), 1000)), 0); EXPECT_EQ(wic_add(&s, i), 0); }
+    EXPECT_EQ(U(waveInStart)(s.h), 0);
+    CHECK(wic_wait_done(&s, 0, FIRST_MS));
+    Sleep(60);
+    EXPECT_EQ(U(waveInStop)(s.h), 0);
+    CHECK(wic_wait_done(&s, 1, 1000));      /* partial buffer handed back by Stop */
+    EXPECT_EQ(s.hdr[2].dwFlags, 0x12);
+    EXPECT_EQ(s.hdr[3].dwFlags, 0x12);
+    EXPECT_EQ(U(waveInReset)(s.h), 0);
+    for (int i = 2; i < 4; i++) { EXPECT_EQ(s.hdr[i].dwFlags, 3); EXPECT_EQ(s.hdr[i].dwBytesRecorded, 0); }
+    EXPECT_EQ(wic_teardown(&s), 0);
+}
+
+TEST(wic_unprepare_after_done_keeps_done) {
+    REQUIRE(U(waveInUnprepareHeader)); NEED_DEV();
+    wic_s s; if (wic_open_std(&s, WAVE_MAPPER)) { wic_teardown(&s); return; }
+    DWORD len = wic_bytes_ms(wic_wfx(&s), 20);
+    EXPECT_EQ(wic_buf(&s, 0, len), 0); EXPECT_EQ(wic_add(&s, 0), 0);
+    EXPECT_EQ(U(waveInStart)(s.h), 0);
+    CHECK(wic_wait_done(&s, 0, FIRST_MS));
+    EXPECT_EQ(U(waveInUnprepareHeader)(s.h, &s.hdr[0], sizeof(WAVEHDR)), 0);
+    EXPECT_EQ(s.hdr[0].dwFlags, WHDR_DONE);          /* only PREPARED is cleared [decomp] */
+    EXPECT_EQ(s.hdr[0].dwBytesRecorded, len);
+    EXPECT_EQ(wic_add(&s, 0), WAVERR_UNPREPARED);
     EXPECT_EQ(wic_teardown(&s), 0);
 }

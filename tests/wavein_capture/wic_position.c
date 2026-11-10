@@ -47,8 +47,13 @@ TEST(wic_pos_cbmmt_sizes) {
     for (int i = 0; i < 8; i++) {
         struct { MMTIME m; char pad[64]; } b; memset(&b, 0x5A, sizeof b); b.m.wType = TIME_BYTES;
         MMRESULT r = U(waveInGetPosition)(s.h, &b.m, sz[i]);
-        t_note("GetPosition cbmmt=%u -> %u wType=%u cb=0x%lx", sz[i], r, b.m.wType, b.m.u.cb);
-        if (sz[i] >= sizeof(MMTIME)) { EXPECT_EQ(r, 0); EXPECT_EQ(b.m.wType, TIME_BYTES); EXPECT_EQ(b.m.u.cb, 0); }
+        if (sz[i] >= sizeof(MMTIME)) {
+            CHECKF(r == 0, "cbmmt %u -> %u", sz[i], r); EXPECT_EQ(b.m.wType, TIME_BYTES); EXPECT_EQ(b.m.u.cb, 0);
+        } else {
+            /* [VM] a short MMTIME is refused by the driver with MMSYSERR_ERROR and left untouched */
+            CHECKF(r == MMSYSERR_ERROR, "cbmmt %u -> %u", sz[i], r);
+            EXPECT_EQ(b.m.wType, TIME_BYTES); EXPECT_EQ(b.m.u.cb, 0x5A5A5A5A);
+        }
     }
     EXPECT_EQ(wic_teardown(&s), 0);
 }
@@ -82,8 +87,9 @@ TEST(wic_pos_unknown_wtype) {
     for (int i = 0; i < 4; i++) {
         MMTIME m; memset(&m, 0, sizeof m); m.wType = ty[i];
         MMRESULT r = U(waveInGetPosition)(s.h, &m, sizeof m);
-        t_note("GetPosition wType %u -> %u, wType now %u", ty[i], r, m.wType);
-        if (r == 0) EXPECT_EQ(m.wType, TIME_BYTES);
+        /* [VM] any type other than SAMPLES/BYTES is answered as TIME_BYTES */
+        CHECKF(r == 0, "wType %u -> %u", ty[i], r);
+        CHECKF(m.wType == TIME_BYTES, "wType %u came back as %u", ty[i], m.wType);
     }
     EXPECT_EQ(wic_teardown(&s), 0);
 }

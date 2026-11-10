@@ -269,3 +269,14 @@ TEST(wic_nodev_errtext_capture_codes) {
     EXPECT_EQ(U(waveInGetErrorTextA)(36, a, sizeof a), MMSYSERR_BADERRNUM);
     EXPECT_EQ(a[0], 0);
 }
+
+/* the handle is validated before the driver sees cbmmt: a short MMTIME on a bad handle is still 5 */
+TEST(wic_nodev_getposition_short_cbmmt_bad_handle) {
+    REQUIRE(U(waveInGetPosition));
+    static const UINT sz[] = {0, 1, 4, 11};
+    for (int i = 0; i < NBADH; i++)
+        for (int j = 0; j < 4; j++) {
+            MMTIME m; memset(&m, 0, sizeof m); m.wType = TIME_BYTES;
+            CHECKF(U(waveInGetPosition)((HWAVEIN)k_badh[i], &m, sz[j]) == MMSYSERR_INVALHANDLE, "h %llx cb %u", (unsigned long long)k_badh[i], sz[j]);
+        }
+}
