@@ -14,7 +14,7 @@ TEST(wo_cb_function_open_close) {
     if (!h) return;
     LONG at_return = rec.n;
     CHECK(wo_rec_wait(&rec, 1, 2000));
-    t_note("OBS function callback: %ld records when waveOutOpen returned", at_return);
+    EXPECT_EQ(at_return, 1);                            /* WOM_OPEN is delivered before waveOutOpen returns (VM) */
     if (rec.n >= 1) {
         EXPECT_EQ(rec.msg[0], WOM_OPEN);
         EXPECT_EQ(rec.h[0], h);

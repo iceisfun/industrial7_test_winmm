@@ -163,7 +163,7 @@ TEST(wo_dev_query_flags_matrix) {
     }
 }
 
-/* Bits that pass the winmmbase mask go to the driver; what the driver does with them is recorded. */
+/* Bits that pass the winmmbase mask go to the driver, which ignores them (VM: every one accepted). */
 TEST(wo_dev_query_passthrough_bits) {
     REQUIRE(U(waveOutOpen));
     if (wo_nodev_contract(WAVE_FORMAT_QUERY)) return;
@@ -172,7 +172,7 @@ TEST(wo_dev_query_passthrough_bits) {
     for (unsigned i = 0; i < sizeof bits / sizeof bits[0]; i++) {
         MMRESULT a = wo_open(NULL, WAVE_MAPPER, &wf, 0, 0, WAVE_FORMAT_QUERY | bits[i]);
         MMRESULT b = wo_open(NULL, 0, &wf, 0, 0, WAVE_FORMAT_QUERY | bits[i]);
-        t_note("OBS query bit 0x%lx: mapper %u, id0 %u", bits[i], a, b);
+        CHECKF(a == MMSYSERR_NOERROR && b == MMSYSERR_NOERROR, "query bit 0x%lx: mapper %u, id0 %u", bits[i], a, b);
     }
 }
 
@@ -185,10 +185,11 @@ TEST(wo_dev_mapped_badid) {
     HWAVEOUT h = WO_SENTINEL;
     MMRESULT r = wo_open(&h, n, &wf, 0, 0, WAVE_MAPPED);
     HWAVEOUT after = h;
-    t_note("OBS WAVE_MAPPED id %u (== count) -> %u h=%p", n, r, after);
+    EXPECT_EQ(r, MMSYSERR_BADDEVICEID);                 /* the mapper refuses the out-of-range id (VM) */
+    EXPECT_EQ(after, NULL);
     wo_release(r, 0, after);
-    r = wo_open(NULL, WO_BADID, &wf, 0, 0, WAVE_MAPPED | WAVE_FORMAT_QUERY);
-    t_note("OBS WAVE_MAPPED|QUERY id 9999 -> %u", r);
+    EXPECT_EQ(wo_open(NULL, WO_BADID, &wf, 0, 0, WAVE_MAPPED | WAVE_FORMAT_QUERY), MMSYSERR_BADDEVICEID);
+    EXPECT_EQ(wo_open(NULL, n, &wf, 0, 0, WAVE_MAPPED | WAVE_FORMAT_QUERY), MMSYSERR_BADDEVICEID);
 }
 
 TEST(wo_dev_handle_value_as_id) {

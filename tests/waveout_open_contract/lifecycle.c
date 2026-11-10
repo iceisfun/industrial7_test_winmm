@@ -157,12 +157,12 @@ TEST(wo_life_callback_type7_open) {
         HWAVEOUT h = WO_SENTINEL;
         MMRESULT r = wo_open(&h, WAVE_MAPPER, &wf, 0, 0, types[t]);
         HWAVEOUT got = h;
-        t_note("OBS callback type 0x%lx without QUERY, dwCallback 0, mapper -> %u", types[t], r);
+        CHECKF(r == MMSYSERR_NOERROR, "callback type 0x%lx without QUERY, mapper -> %u", types[t], r);
         wo_release(r, 0, got);
         h = WO_SENTINEL;
         r = wo_open(&h, 0, &wf, 0, 0, types[t]);
         got = h;
-        t_note("OBS callback type 0x%lx without QUERY, dwCallback 0, id 0 -> %u", types[t], r);
+        CHECKF(r == MMSYSERR_NOERROR, "callback type 0x%lx without QUERY, id 0 -> %u", types[t], r);
         wo_release(r, 0, got);
     }
 }
@@ -176,7 +176,7 @@ TEST(wo_life_passthrough_bits_open) {
         HWAVEOUT h = WO_SENTINEL;
         MMRESULT r = wo_open(&h, 0, &wf, 0, 0, bits[i]);
         HWAVEOUT got = h;
-        t_note("OBS open id0 bit 0x%lx -> %u", bits[i], r);
+        CHECKF(r == MMSYSERR_NOERROR, "open id0 bit 0x%lx -> %u (driver ignores it, VM)", bits[i], r);
         if (r) CHECKF(got == NULL, "failed open left *phwo %p", got);
         wo_release(r, 0, got);
     }
@@ -467,7 +467,7 @@ TEST(wo_close_with_prepared_unwritten_header) {
     wh.lpData = (LPSTR)g_silence; wh.dwBufferLength = 4096;
     EXPECT_EQ(U(waveOutPrepareHeader)(h, &wh, sizeof wh), MMSYSERR_NOERROR);
     MMRESULT r = wo_close(h);
-    t_note("OBS close with a prepared, never written header -> %u", r);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);                     /* a prepared, never written header does not block close (VM) */
     if (r == MMSYSERR_NOERROR) {
         /* PREPARED is still set in our header; with the handle gone the unprepare fails the handle check */
         EXPECT_EQ(wh.dwFlags & WHDR_PREPARED, WHDR_PREPARED);

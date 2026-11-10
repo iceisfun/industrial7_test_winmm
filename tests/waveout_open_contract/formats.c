@@ -1,48 +1,54 @@
 #include "wo.h"
 /* Formats at open time. winmmbase does not validate WAVEFORMATEX; the driver (and, through the mapper, ACM)
- * answers. Rows marked OBS are recorded only; the others are pinned from the Win10 VM. In every row a QUERY and a
- * real open must agree, and a failed real open leaves *phwo NULL. With no device every row is 2. */
+ * answers. Each row pins four answers observed on the Win10 VM (HDA codec, shared-mode engine 48 kHz float):
+ * WAVE_FORMAT_QUERY through the mapper and on device 0, and a real open through both. A QUERY and a real open do
+ * NOT always agree: the query path accepts formats the real open refuses (bits 64, nBlockAlign 0/3, rate
+ * 1000000 on the device), and a refused real open on a device id answers 11 where the query answers 32.
+ * A failed real open always leaves *phwo NULL. With no device every row is 2. */
 
-typedef struct { const char *name; WAVEFORMATEX f; UINT mapper; UINT id0; } frow;
+#define B WAVERR_BADFORMAT
+#define P MMSYSERR_INVALPARAM
+typedef struct { const char *name; WAVEFORMATEX f; UINT qm, q0, om, o0; } frow;
 
 static void build_rows(frow *r, int *n) {
     int k = 0;
-#define ROW(nm, ch, rate, bits, wm, w0) do { r[k].name = nm; wo_pcm(&r[k].f, ch, rate, bits); r[k].mapper = wm; r[k].id0 = w0; k++; } while (0)
-    ROW("pcm 8000/8/1", 1, 8000, 8, 0, 0);
-    ROW("pcm 11025/8/1", 1, 11025, 8, 0, 0);
-    ROW("pcm 22050/16/1", 1, 22050, 16, 0, 0);
-    ROW("pcm 44100/16/1", 1, 44100, 16, 0, 0);
-    ROW("pcm 44100/16/2", 2, 44100, 16, 0, 0);
-    ROW("pcm 48000/16/2", 2, 48000, 16, 0, 0);
-    ROW("pcm 96000/16/2", 2, 96000, 16, 0, 0);
-    ROW("pcm 48000/24/2", 2, 48000, 24, 0, 0);
-    ROW("pcm 48000/32/2", 2, 48000, 32, 0, 0);
-    ROW("pcm 44100/8/2", 2, 44100, 8, 0, 0);
-    ROW("pcm 6ch 44100/16", 6, 44100, 16, WAVERR_BADFORMAT, WAVERR_BADFORMAT);
-    ROW("pcm 8ch 48000/16", 8, 48000, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm 4ch 44100/16", 4, 44100, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm 3ch 44100/16", 3, 44100, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm 0ch", 0, 44100, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm rate 0", 2, 0, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm bits 0", 2, 44100, 0, WO_UNSET, WO_UNSET);
-    ROW("pcm bits 12", 2, 44100, 12, WO_UNSET, WO_UNSET);
-    ROW("pcm bits 20", 2, 44100, 20, WO_UNSET, WO_UNSET);
-    ROW("pcm bits 64", 2, 44100, 64, WO_UNSET, WO_UNSET);
-    ROW("pcm rate 1000", 2, 1000, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm rate 384000", 2, 384000, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm rate 1000000", 2, 1000000, 16, WO_UNSET, WO_UNSET);
-    ROW("pcm avgbytes 0", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.nAvgBytesPerSec = 0;
-    ROW("pcm avgbytes wrong", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.nAvgBytesPerSec = 12345;
-    ROW("pcm blockalign 3", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.nBlockAlign = 3;
-    ROW("pcm blockalign 0", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.nBlockAlign = 0;
-    ROW("pcm cbSize 0x7777", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.cbSize = 0x7777;
-    ROW("tag 0", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.wFormatTag = 0;
-    ROW("tag 0x7777", 2, 44100, 16, WO_UNSET, WO_UNSET); r[k - 1].f.wFormatTag = 0x7777;
-    ROW("float 48000/32/2", 2, 48000, 32, 0, WO_UNSET); r[k - 1].f.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-    ROW("float 44100/32/1", 1, 44100, 32, WO_UNSET, WO_UNSET); r[k - 1].f.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-    ROW("float 48000/64/2", 2, 48000, 64, WO_UNSET, WO_UNSET); r[k - 1].f.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-    ROW("alaw 8000/8/1", 1, 8000, 8, WO_UNSET, WO_UNSET); r[k - 1].f.wFormatTag = WAVE_FORMAT_ALAW;
-    ROW("mulaw 8000/8/1", 1, 8000, 8, WO_UNSET, WO_UNSET); r[k - 1].f.wFormatTag = WAVE_FORMAT_MULAW;
+#define ROW(nm, ch, rate, bits, a, b, c, d) do { r[k].name = nm; wo_pcm(&r[k].f, ch, rate, bits); \
+    r[k].qm = a; r[k].q0 = b; r[k].om = c; r[k].o0 = d; k++; } while (0)
+    ROW("pcm 8000/8/1", 1, 8000, 8,          0, 0, 0, 0);
+    ROW("pcm 11025/8/1", 1, 11025, 8,        0, 0, 0, 0);
+    ROW("pcm 22050/16/1", 1, 22050, 16,      0, 0, 0, 0);
+    ROW("pcm 44100/16/1", 1, 44100, 16,      0, 0, 0, 0);
+    ROW("pcm 44100/16/2", 2, 44100, 16,      0, 0, 0, 0);
+    ROW("pcm 48000/16/2", 2, 48000, 16,      0, 0, 0, 0);
+    ROW("pcm 96000/16/2", 2, 96000, 16,      0, 0, 0, 0);
+    ROW("pcm 48000/24/2", 2, 48000, 24,      0, 0, 0, 0);
+    ROW("pcm 48000/32/2", 2, 48000, 32,      0, 0, 0, 0);
+    ROW("pcm 44100/8/2", 2, 44100, 8,        0, 0, 0, 0);
+    ROW("pcm 6ch 44100/16", 6, 44100, 16,    B, B, B, P);
+    ROW("pcm 8ch 48000/16", 8, 48000, 16,    B, B, B, P);
+    ROW("pcm 4ch 44100/16", 4, 44100, 16,    B, B, B, P);
+    ROW("pcm 3ch 44100/16", 3, 44100, 16,    B, B, B, P);
+    ROW("pcm 0ch", 0, 44100, 16,             B, B, B, P);
+    ROW("pcm rate 0", 2, 0, 16,              B, B, B, P);
+    ROW("pcm bits 0", 2, 44100, 0,           B, B, B, P);
+    ROW("pcm bits 12", 2, 44100, 12,         B, B, B, P);
+    ROW("pcm bits 20", 2, 44100, 20,         B, B, B, P);
+    ROW("pcm bits 64", 2, 44100, 64,         0, 0, B, P);
+    ROW("pcm rate 1000", 2, 1000, 16,        0, 0, 0, 0);
+    ROW("pcm rate 384000", 2, 384000, 16,    0, 0, 0, 0);
+    ROW("pcm rate 1000000", 2, 1000000, 16,  0, 0, 0, B);
+    ROW("pcm avgbytes 0", 2, 44100, 16,      0, 0, 0, 0); r[k - 1].f.nAvgBytesPerSec = 0;
+    ROW("pcm avgbytes wrong", 2, 44100, 16,  0, 0, 0, 0); r[k - 1].f.nAvgBytesPerSec = 12345;
+    ROW("pcm blockalign 3", 2, 44100, 16,    0, 0, B, P); r[k - 1].f.nBlockAlign = 3;
+    ROW("pcm blockalign 0", 2, 44100, 16,    0, 0, B, P); r[k - 1].f.nBlockAlign = 0;
+    ROW("pcm cbSize 0x7777", 2, 44100, 16,   0, 0, 0, 0); r[k - 1].f.cbSize = 0x7777;
+    ROW("tag 0", 2, 44100, 16,               B, B, B, B); r[k - 1].f.wFormatTag = 0;
+    ROW("tag 0x7777", 2, 44100, 16,          B, B, B, B); r[k - 1].f.wFormatTag = 0x7777;
+    ROW("float 48000/32/2", 2, 48000, 32,    0, 0, 0, 0); r[k - 1].f.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    ROW("float 44100/32/1", 1, 44100, 32,    0, 0, 0, 0); r[k - 1].f.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    ROW("float 48000/64/2", 2, 48000, 64,    0, 0, B, B); r[k - 1].f.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+    ROW("alaw 8000/8/1", 1, 8000, 8,         0, B, 0, B); r[k - 1].f.wFormatTag = WAVE_FORMAT_ALAW;
+    ROW("mulaw 8000/8/1", 1, 8000, 8,        0, B, 0, B); r[k - 1].f.wFormatTag = WAVE_FORMAT_MULAW;
 #undef ROW
     *n = k;
 }
@@ -53,17 +59,16 @@ static void run_rows(int real_open) {
     for (int i = 0; i < n; i++) {
         for (int which = 0; which < 2; which++) {
             UINT id = which ? 0 : WAVE_MAPPER;
-            UINT want = which ? rows[i].id0 : rows[i].mapper;
+            const char *nm = which ? "id0" : "mapper";
+            UINT wq = which ? rows[i].q0 : rows[i].qm, wo = which ? rows[i].o0 : rows[i].om;
+            if (wo_ndev() == 0) wq = wo = MMSYSERR_BADDEVICEID;
             MMRESULT q = wo_open(NULL, id, &rows[i].f, 0, 0, WAVE_FORMAT_QUERY);
-            if (wo_ndev() == 0) { CHECKF(q == MMSYSERR_BADDEVICEID, "%s %s query -> %u", rows[i].name, which ? "id0" : "mapper", q); }
-            else if (want == WO_UNSET) t_note("OBS %s %s query -> %u", rows[i].name, which ? "id0" : "mapper", q);
-            else CHECKF(q == want, "%s %s query -> %u want %u", rows[i].name, which ? "id0" : "mapper", q, want);
+            CHECKF(q == wq, "%s %s query -> %u want %u", rows[i].name, nm, q, wq);
             if (!real_open) continue;
             HWAVEOUT h = WO_SENTINEL;
             MMRESULT r = wo_open(&h, id, &rows[i].f, 0, 0, 0);
             HWAVEOUT got = h;
-            if (wo_ndev() == 0) CHECKF(r == MMSYSERR_BADDEVICEID, "%s open -> %u", rows[i].name, r);
-            else CHECKF(r == q, "%s %s: open %u but query %u", rows[i].name, which ? "id0" : "mapper", r, q);
+            CHECKF(r == wo, "%s %s open -> %u want %u", rows[i].name, nm, r, wo);
             if (r) CHECKF(got == NULL, "%s: failed open left *phwo %p", rows[i].name, got);
             else CHECKF(got != NULL && got != WO_SENTINEL, "%s: open ok but *phwo %p", rows[i].name, got);
             wo_release(r, 0, got);
@@ -72,8 +77,10 @@ static void run_rows(int real_open) {
 }
 
 TEST(wo_fmt_query_table) { REQUIRE(U(waveOutOpen)); run_rows(0); }
-TEST(wo_fmt_open_matches_query) { REQUIRE(U(waveOutOpen)); REQUIRE(U(waveOutClose)); run_rows(1); }
+TEST(wo_fmt_open_table) { REQUIRE(U(waveOutOpen)); REQUIRE(U(waveOutClose)); run_rows(1); }
 
+/* WAVE_FORMAT_DIRECT switches ACM off: through the mapper the answer becomes the device's own (A-law / mu-law
+ * are converted by the mapper only without DIRECT). */
 TEST(wo_fmt_direct_vs_mapper) {
     REQUIRE(U(waveOutOpen));
     if (wo_nodev_contract(WAVE_FORMAT_QUERY | WAVE_FORMAT_DIRECT)) return;
@@ -83,8 +90,9 @@ TEST(wo_fmt_direct_vs_mapper) {
         MMRESULT m = wo_open(NULL, WAVE_MAPPER, &rows[i].f, 0, 0, WAVE_FORMAT_QUERY);
         MMRESULT md = wo_open(NULL, WAVE_MAPPER, &rows[i].f, 0, 0, WAVE_FORMAT_DIRECT_QUERY);
         MMRESULT d = wo_open(NULL, 0, &rows[i].f, 0, 0, WAVE_FORMAT_DIRECT_QUERY);
-        t_note("OBS %s: mapper %u, mapper+DIRECT %u, id0+DIRECT %u", rows[i].name, m, md, d);
-        /* ACM through the mapper can only add formats: what the device takes directly, the mapper takes. */
+        CHECKF(m == rows[i].qm, "%s: mapper %u want %u", rows[i].name, m, rows[i].qm);
+        CHECKF(md == rows[i].q0, "%s: mapper+DIRECT %u want %u", rows[i].name, md, rows[i].q0);
+        CHECKF(d == rows[i].q0, "%s: id0+DIRECT %u want %u", rows[i].name, d, rows[i].q0);
         if (d == MMSYSERR_NOERROR) CHECKF(m == MMSYSERR_NOERROR, "%s: id0 direct ok but mapper %u", rows[i].name, m);
     }
 }
@@ -105,7 +113,8 @@ TEST(wo_fmt_extensible) {
         wo_ext(&x, rows[i].ch, 48000, rows[i].bits, rows[i].valid, rows[i].mask, rows[i].fl);
         MMRESULT qm = wo_open(NULL, WAVE_MAPPER, &x.Format, 0, 0, WAVE_FORMAT_QUERY);
         MMRESULT q0 = wo_open(NULL, 0, &x.Format, 0, 0, WAVE_FORMAT_QUERY);
-        t_note("OBS %s: mapper %u id0 %u", rows[i].nm, qm, q0);
+        EXPECT_EQ(qm, MMSYSERR_NOERROR);                    /* every row below is taken (VM) */
+        EXPECT_EQ(q0, MMSYSERR_NOERROR);
         HWAVEOUT h = WO_SENTINEL;
         MMRESULT r = wo_open(&h, WAVE_MAPPER, &x.Format, 0, 0, 0);
         HWAVEOUT got = h;
@@ -119,7 +128,7 @@ TEST(wo_fmt_extensible) {
     EXPECT_EQ(wo_open(NULL, 0, &x.Format, 0, 0, WAVE_FORMAT_QUERY), MMSYSERR_NOERROR);
 }
 
-TEST(wo_fmt_extensible_short_cbsize) {
+TEST(wo_fmt_extensible_short_cbsize) {   /* query only: no stream is created */
     REQUIRE(U(waveOutOpen));
     if (wo_nodev_contract(WAVE_FORMAT_QUERY)) return;
     WAVEFORMATEXTENSIBLE x;
@@ -130,7 +139,10 @@ TEST(wo_fmt_extensible_short_cbsize) {
         big.x.Format.cbSize = cbs[i];
         MMRESULT qm = wo_open(NULL, WAVE_MAPPER, &big.x.Format, 0, 0, WAVE_FORMAT_QUERY);
         MMRESULT q0 = wo_open(NULL, 0, &big.x.Format, 0, 0, WAVE_FORMAT_QUERY);
-        t_note("OBS extensible cbSize %u: mapper %u id0 %u", cbs[i], qm, q0);
+        /* cbSize < 22 for WAVE_FORMAT_EXTENSIBLE: the mapper answers 32, the device 11 (VM) */
+        UINT wm = cbs[i] < 22 ? WAVERR_BADFORMAT : MMSYSERR_NOERROR, w0 = cbs[i] < 22 ? MMSYSERR_INVALPARAM : MMSYSERR_NOERROR;
+        CHECKF(qm == wm, "cbSize %u: mapper %u want %u", cbs[i], qm, wm);
+        CHECKF(q0 == w0, "cbSize %u: id0 %u want %u", cbs[i], q0, w0);
     }
 }
 
