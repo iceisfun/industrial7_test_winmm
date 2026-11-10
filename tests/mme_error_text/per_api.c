@@ -283,7 +283,13 @@ static void t_sweep_small(int i) {
             memset(buf, ET_FILL, sizeof buf);
             MMRESULT r = g_call(a, c, buf, cch), want = et_expect(a->family, c, cch);
             CHECKF(r == want, "%s(%lu, cch %u) = %u want %u", a->name, c, cch, r, want);
-            CHECKF(g_ch_zero(a, buf, cch - 1), "%s(%lu, cch %u) not terminated", a->name, c, cch);
+            /* failure and cch 1: only pszText[0] (cleared); success at cch 2: one character then the terminator */
+            if (r != MMSYSERR_NOERROR || cch == 1) {
+                CHECKF(g_ch_zero(a, buf, 0), "%s(%lu, cch %u) not empty", a->name, c, cch);
+                CHECKF(et_bytes_are(buf + g_cs(a), sizeof buf - g_cs(a), ET_FILL), "%s(%lu, cch %u) wrote past [0]", a->name, c, cch);
+            } else {
+                CHECKF(!g_ch_zero(a, buf, 0) && g_ch_zero(a, buf, 1), "%s(%lu, cch 2) not one character", a->name, c);
+            }
         }
 }
 
