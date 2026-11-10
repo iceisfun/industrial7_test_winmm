@@ -64,6 +64,10 @@ void mh_expect_bad(const mh_op *ops, int n, ULONG_PTR h, const char *tag);
 /* Runs every op with every MH_BAD value. */
 void mh_expect_all_bad(const mh_op *ops, int n);
 
+/* One op against every MH_BAD value, a freed handle value and (unless the op accepts mmio handles) a live HMMIO.
+ * The op is looked up by name in the table; the test is skipped when its export is missing. */
+void mh_op_contract(const mh_op *ops, int n, const char *name);
+
 /* Device counts, read once per process (the first call may wait for AudioSrv: never timed). */
 typedef struct { UINT wo, wi, mo, mi, mx; } mh_counts;
 const mh_counts *mh_devs(void);

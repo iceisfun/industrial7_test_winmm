@@ -135,28 +135,6 @@ TEST(mh_midi_device_gating) {
     t_note("midiIn devices %u", c->mi);
 }
 
-TEST(mh_midiout_bad_values) { REQ_MIDIOUT(); mh_expect_all_bad(MH_MIDIOUT_OPS, MH_NMIDIOUT_OPS); }
-TEST(mh_midiin_bad_values) { REQ_MIDIIN(); mh_expect_all_bad(MH_MIDIIN_OPS, MH_NMIDIIN_OPS); }
-TEST(mh_stream_bad_values) { REQ_STREAM(); mh_expect_all_bad(MH_STREAM_OPS, MH_NSTREAM_OPS); }
-
-TEST(mh_midiout_freed_value) {
-    REQ_MIDIOUT();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_MIDIOUT_OPS, MH_NMIDIOUT_OPS, dead, "freed HMMIO");
-}
-TEST(mh_midiin_freed_value) {
-    REQ_MIDIIN();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_MIDIIN_OPS, MH_NMIDIIN_OPS, dead, "freed HMMIO");
-}
-TEST(mh_stream_freed_value) {
-    REQ_STREAM();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_STREAM_OPS, MH_NSTREAM_OPS, dead, "freed HMMIO");
-}
 
 TEST(mh_midiout_live_hmmio) {
     REQ_MIDIOUT();

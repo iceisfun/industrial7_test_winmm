@@ -25,6 +25,28 @@ void mh_expect_all_bad(const mh_op *ops, int n) {
     for (int b = 0; b < MH_NBAD; b++) mh_expect_bad(ops, n, MH_BAD[b].v, MH_BAD[b].name);
 }
 
+void mh_op_contract(const mh_op *ops, int n, const char *name) {
+    const mh_op *op = NULL;
+    for (int i = 0; i < n; i++) if (!strcmp(ops[i].name, name)) op = &ops[i];
+    if (!op) { CHECKF(0, "no op named %s", name); return; }
+    char fn[64]; int k = 0;
+    while (name[k] && name[k] != '(' && k < 63) { fn[k] = name[k]; k++; }
+    fn[k] = 0;
+    if (!t_proc(fn)) { t_skip("missing export: %s", fn); return; }
+    if (!U(mmioOpenA) || !U(mmioClose)) { t_skip("missing mmio exports"); return; }
+    mh_expect_bad(op, 1, 0, "NULL");
+    for (int b = 0; b < MH_NBAD; b++) mh_expect_bad(op, 1, MH_BAD[b].v, MH_BAD[b].name);
+    ULONG_PTR dead = mh_closed_mmio();
+    if (dead) mh_expect_bad(op, 1, dead, "freed HMMIO");
+    if (!(op->accept_mask & (1u << MHT_MMIO))) {
+        HMMIO m = mh_mmio_open();
+        if (m) {
+            mh_expect_bad(op, 1, (ULONG_PTR)m, "live HMMIO");
+            EXPECT_EQ(U(mmioClose)(m, 0), 0);   /* still a valid mmio handle after the foreign call */
+        }
+    }
+}
+
 static mh_counts g_counts; static int g_counts_ok;
 const mh_counts *mh_devs(void) {
     if (!g_counts_ok) {

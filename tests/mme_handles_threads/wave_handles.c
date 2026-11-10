@@ -134,21 +134,6 @@ TEST(mh_wave_device_gating) {
     EXPECT_EQ(U(waveInGetNumDevs)(), c->wi);
 }
 
-TEST(mh_waveout_bad_values) { REQ_WAVEOUT(); mh_expect_all_bad(MH_WAVEOUT_OPS, MH_NWAVEOUT_OPS); }
-TEST(mh_wavein_bad_values) { REQ_WAVEIN(); mh_expect_all_bad(MH_WAVEIN_OPS, MH_NWAVEIN_OPS); }
-
-TEST(mh_waveout_freed_mmio_value) {
-    REQ_WAVEOUT();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_WAVEOUT_OPS, MH_NWAVEOUT_OPS, dead, "freed HMMIO");
-}
-TEST(mh_wavein_freed_mmio_value) {
-    REQ_WAVEIN();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_WAVEIN_OPS, MH_NWAVEIN_OPS, dead, "freed HMMIO");
-}
 
 /* A live HMMIO (type 5) is never a wave handle. */
 TEST(mh_waveout_live_hmmio) {

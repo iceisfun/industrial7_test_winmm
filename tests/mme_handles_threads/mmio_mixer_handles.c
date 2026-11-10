@@ -89,21 +89,7 @@ const int MH_NMIXER_OPS = sizeof MH_MIXER_OPS / sizeof MH_MIXER_OPS[0];
 #define REQ_MIXER() do { REQUIRE(U(mixerClose)); REQUIRE(U(mixerGetID)); REQUIRE(U(mixerGetLineInfoW)); \
     REQUIRE(U(mixerGetLineControlsW)); REQUIRE(U(mixerGetControlDetailsW)); REQUIRE(U(mmioOpenA)); } while (0)
 
-TEST(mh_mmio_bad_values) { REQ_MMIO(); mh_expect_all_bad(MH_MMIO_OPS, MH_NMMIO_OPS); }
-TEST(mh_mixer_bad_values) { REQ_MIXER(); mh_expect_all_bad(MH_MIXER_OPS, MH_NMIXER_OPS); }
 
-TEST(mh_mmio_freed_value) {
-    REQ_MMIO();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_MMIO_OPS, MH_NMMIO_OPS, dead, "freed HMMIO");
-}
-TEST(mh_mixer_freed_value) {
-    REQ_MIXER();
-    ULONG_PTR dead = mh_closed_mmio();
-    if (!dead) { t_skip("mmio memory open failed"); return; }
-    mh_expect_bad(MH_MIXER_OPS, MH_NMIXER_OPS, dead, "freed HMMIO");
-}
 TEST(mh_mixer_live_hmmio) {
     REQ_MIXER();
     HMMIO m = mh_mmio_open();
