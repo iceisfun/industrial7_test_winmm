@@ -1,0 +1,247 @@
+[
+{
+"name": null,
+"ordinal": 2,
+"rva": 5920,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x1720"
+},
+{
+"name": null,
+"ordinal": 3,
+"rva": 109488,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x1abb0"
+},
+{
+"name": null,
+"ordinal": 4,
+"rva": 381968,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x5d410"
+},
+{
+"name": null,
+"ordinal": 5,
+"rva": 107024,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x1a210"
+},
+{
+"name": null,
+"ordinal": 6,
+"rva": 256528,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3ea10"
+},
+{
+"name": null,
+"ordinal": 7,
+"rva": 107008,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x1a200"
+},
+{
+"name": null,
+"ordinal": 8,
+"rva": 6816,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x1aa0"
+},
+{
+"name": null,
+"ordinal": 9,
+"rva": 106416,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x19fb0"
+},
+{
+"name": null,
+"ordinal": 10,
+"rva": 18512,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x4850"
+},
+{
+"name": null,
+"ordinal": 11,
+"rva": 17968,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x4630"
+},
+{
+"name": null,
+"ordinal": 12,
+"rva": 16528,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x4090"
+},
+{
+"name": null,
+"ordinal": 13,
+"rva": 383344,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x5d970"
+},
+{
+"name": null,
+"ordinal": 14,
+"rva": 109984,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x1ada0"
+},
+{
+"name": null,
+"ordinal": 15,
+"rva": 102912,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x19200"
+},
+{
+"name": null,
+"ordinal": 16,
+"rva": 82704,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x14310"
+},
+{
+"name": "ActivateAudioInterfaceAsync",
+"ordinal": 17,
+"rva": 235152,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x39690"
+},
+{
+"name": null,
+"ordinal": 18,
+"rva": 236432,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x39b90"
+},
+{
+"name": null,
+"ordinal": 19,
+"rva": 245296,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3be30"
+},
+{
+"name": null,
+"ordinal": 20,
+"rva": 246848,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c440"
+},
+{
+"name": null,
+"ordinal": 21,
+"rva": 79888,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x13810"
+},
+{
+"name": null,
+"ordinal": 22,
+"rva": 246496,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c2e0"
+},
+{
+"name": null,
+"ordinal": 23,
+"rva": 247200,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c5a0"
+},
+{
+"name": null,
+"ordinal": 24,
+"rva": 246208,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c1c0"
+},
+{
+"name": null,
+"ordinal": 25,
+"rva": 247568,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c710"
+},
+{
+"name": null,
+"ordinal": 26,
+"rva": 82032,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x14070"
+},
+{
+"name": null,
+"ordinal": 27,
+"rva": 247856,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c830"
+},
+{
+"name": null,
+"ordinal": 28,
+"rva": 81760,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x13f60"
+},
+{
+"name": null,
+"ordinal": 29,
+"rva": 82320,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x14190"
+},
+{
+"name": null,
+"ordinal": 30,
+"rva": 245888,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3c080"
+},
+{
+"name": null,
+"ordinal": 31,
+"rva": 245344,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3be60"
+},
+{
+"name": null,
+"ordinal": 32,
+"rva": 50656,
+"forwarder": null,
+"ref": "mmdevapi.dll!0xc5e0"
+},
+{
+"name": "DllCanUnloadNow",
+"ordinal": 33,
+"rva": 100336,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x187f0"
+},
+{
+"name": "DllGetClassObject",
+"ordinal": 34,
+"rva": 99136,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x18340"
+},
+{
+"name": "DllRegisterServer",
+"ordinal": 35,
+"rva": 256400,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3e990"
+},
+{
+"name": "DllUnregisterServer",
+"ordinal": 36,
+"rva": 256512,
+"forwarder": null,
+"ref": "mmdevapi.dll!0x3ea00"
+}
+]

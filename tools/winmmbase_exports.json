@@ -1,0 +1,989 @@
+[
+{
+"name": "CloseDriver",
+"ordinal": 1,
+"rva": 13424,
+"forwarder": null,
+"ref": "winmmbase.dll!0x3470"
+},
+{
+"name": "DefDriverProc",
+"ordinal": 2,
+"rva": 18800,
+"forwarder": null,
+"ref": "winmmbase.dll!0x4970"
+},
+{
+"name": "DriverCallback",
+"ordinal": 3,
+"rva": 21856,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5560"
+},
+{
+"name": "DrvGetModuleHandle",
+"ordinal": 4,
+"rva": 14064,
+"forwarder": null,
+"ref": "winmmbase.dll!0x36f0"
+},
+{
+"name": "GetDriverModuleHandle",
+"ordinal": 5,
+"rva": 14064,
+"forwarder": null,
+"ref": "winmmbase.dll!0x36f0"
+},
+{
+"name": "OpenDriver",
+"ordinal": 6,
+"rva": 13584,
+"forwarder": null,
+"ref": "winmmbase.dll!0x3510"
+},
+{
+"name": "SendDriverMessage",
+"ordinal": 7,
+"rva": 18768,
+"forwarder": null,
+"ref": "winmmbase.dll!0x4950"
+},
+{
+"name": "auxGetDevCapsA",
+"ordinal": 8,
+"rva": 22992,
+"forwarder": null,
+"ref": "winmmbase.dll!0x59d0"
+},
+{
+"name": "auxGetDevCapsW",
+"ordinal": 9,
+"rva": 22832,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5930"
+},
+{
+"name": "auxGetNumDevs",
+"ordinal": 10,
+"rva": 22752,
+"forwarder": null,
+"ref": "winmmbase.dll!0x58e0"
+},
+{
+"name": "auxGetVolume",
+"ordinal": 11,
+"rva": 23344,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5b30"
+},
+{
+"name": "auxOutMessage",
+"ordinal": 12,
+"rva": 22544,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5810"
+},
+{
+"name": "auxSetVolume",
+"ordinal": 13,
+"rva": 23456,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5ba0"
+},
+{
+"name": "midiConnect",
+"ordinal": 14,
+"rva": 24400,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5f50"
+},
+{
+"name": "midiDisconnect",
+"ordinal": 15,
+"rva": 24288,
+"forwarder": null,
+"ref": "winmmbase.dll!0x5ee0"
+},
+{
+"name": "midiInAddBuffer",
+"ordinal": 16,
+"rva": 37328,
+"forwarder": null,
+"ref": "winmmbase.dll!0x91d0"
+},
+{
+"name": "midiInClose",
+"ordinal": 17,
+"rva": 36720,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8f70"
+},
+{
+"name": "midiInGetDevCapsA",
+"ordinal": 18,
+"rva": 35792,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8bd0"
+},
+{
+"name": "midiInGetDevCapsW",
+"ordinal": 19,
+"rva": 35552,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8ae0"
+},
+{
+"name": "midiInGetErrorTextA",
+"ordinal": 20,
+"rva": 32096,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7d60"
+},
+{
+"name": "midiInGetErrorTextW",
+"ordinal": 21,
+"rva": 32064,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7d40"
+},
+{
+"name": "midiInGetID",
+"ordinal": 22,
+"rva": 37968,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9450"
+},
+{
+"name": "midiInGetNumDevs",
+"ordinal": 23,
+"rva": 35328,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8a00"
+},
+{
+"name": "midiInMessage",
+"ordinal": 24,
+"rva": 35408,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8a50"
+},
+{
+"name": "midiInOpen",
+"ordinal": 25,
+"rva": 36240,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8d90"
+},
+{
+"name": "midiInPrepareHeader",
+"ordinal": 26,
+"rva": 36992,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9080"
+},
+{
+"name": "midiInReset",
+"ordinal": 27,
+"rva": 37648,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9310"
+},
+{
+"name": "midiInStart",
+"ordinal": 28,
+"rva": 37488,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9270"
+},
+{
+"name": "midiInStop",
+"ordinal": 29,
+"rva": 37568,
+"forwarder": null,
+"ref": "winmmbase.dll!0x92c0"
+},
+{
+"name": "midiInUnprepareHeader",
+"ordinal": 30,
+"rva": 37136,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9110"
+},
+{
+"name": "midiOutCacheDrumPatches",
+"ordinal": 31,
+"rva": 34896,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8850"
+},
+{
+"name": "midiOutCachePatches",
+"ordinal": 32,
+"rva": 34688,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8780"
+},
+{
+"name": "midiOutClose",
+"ordinal": 33,
+"rva": 32768,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8000"
+},
+{
+"name": "midiOutGetDevCapsA",
+"ordinal": 34,
+"rva": 30992,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7910"
+},
+{
+"name": "midiOutGetDevCapsW",
+"ordinal": 35,
+"rva": 30752,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7820"
+},
+{
+"name": "midiOutGetErrorTextA",
+"ordinal": 36,
+"rva": 32096,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7d60"
+},
+{
+"name": "midiOutGetErrorTextW",
+"ordinal": 37,
+"rva": 32064,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7d40"
+},
+{
+"name": "midiOutGetID",
+"ordinal": 38,
+"rva": 38048,
+"forwarder": null,
+"ref": "winmmbase.dll!0x94a0"
+},
+{
+"name": "midiOutGetNumDevs",
+"ordinal": 39,
+"rva": 30480,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7710"
+},
+{
+"name": "midiOutGetVolume",
+"ordinal": 40,
+"rva": 31472,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7af0"
+},
+{
+"name": "midiOutLongMsg",
+"ordinal": 41,
+"rva": 34336,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8620"
+},
+{
+"name": "midiOutMessage",
+"ordinal": 42,
+"rva": 30560,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7760"
+},
+{
+"name": "midiOutOpen",
+"ordinal": 43,
+"rva": 32208,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7dd0"
+},
+{
+"name": "midiOutPrepareHeader",
+"ordinal": 44,
+"rva": 33040,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8110"
+},
+{
+"name": "midiOutReset",
+"ordinal": 45,
+"rva": 34544,
+"forwarder": null,
+"ref": "winmmbase.dll!0x86f0"
+},
+{
+"name": "midiOutSetVolume",
+"ordinal": 46,
+"rva": 31760,
+"forwarder": null,
+"ref": "winmmbase.dll!0x7c10"
+},
+{
+"name": "midiOutShortMsg",
+"ordinal": 47,
+"rva": 34160,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8570"
+},
+{
+"name": "midiOutUnprepareHeader",
+"ordinal": 48,
+"rva": 33680,
+"forwarder": null,
+"ref": "winmmbase.dll!0x8390"
+},
+{
+"name": "midiStreamClose",
+"ordinal": 49,
+"rva": 26480,
+"forwarder": null,
+"ref": "winmmbase.dll!0x6770"
+},
+{
+"name": "midiStreamOpen",
+"ordinal": 50,
+"rva": 24816,
+"forwarder": null,
+"ref": "winmmbase.dll!0x60f0"
+},
+{
+"name": "midiStreamOut",
+"ordinal": 51,
+"rva": 27712,
+"forwarder": null,
+"ref": "winmmbase.dll!0x6c40"
+},
+{
+"name": "midiStreamPause",
+"ordinal": 52,
+"rva": 27232,
+"forwarder": null,
+"ref": "winmmbase.dll!0x6a60"
+},
+{
+"name": "midiStreamPosition",
+"ordinal": 53,
+"rva": 27056,
+"forwarder": null,
+"ref": "winmmbase.dll!0x69b0"
+},
+{
+"name": "midiStreamProperty",
+"ordinal": 54,
+"rva": 26944,
+"forwarder": null,
+"ref": "winmmbase.dll!0x6940"
+},
+{
+"name": "midiStreamRestart",
+"ordinal": 55,
+"rva": 27296,
+"forwarder": null,
+"ref": "winmmbase.dll!0x6aa0"
+},
+{
+"name": "midiStreamStop",
+"ordinal": 56,
+"rva": 27168,
+"forwarder": null,
+"ref": "winmmbase.dll!0x6a20"
+},
+{
+"name": "mixerClose",
+"ordinal": 57,
+"rva": 43376,
+"forwarder": null,
+"ref": "winmmbase.dll!0xa970"
+},
+{
+"name": "mixerGetControlDetailsA",
+"ordinal": 58,
+"rva": 47056,
+"forwarder": null,
+"ref": "winmmbase.dll!0xb7d0"
+},
+{
+"name": "mixerGetControlDetailsW",
+"ordinal": 59,
+"rva": 47392,
+"forwarder": null,
+"ref": "winmmbase.dll!0xb920"
+},
+{
+"name": "mixerGetDevCapsA",
+"ordinal": 60,
+"rva": 39472,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9a30"
+},
+{
+"name": "mixerGetDevCapsW",
+"ordinal": 61,
+"rva": 40048,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9c70"
+},
+{
+"name": "mixerGetID",
+"ordinal": 62,
+"rva": 40448,
+"forwarder": null,
+"ref": "winmmbase.dll!0x9e00"
+},
+{
+"name": "mixerGetLineControlsA",
+"ordinal": 63,
+"rva": 46368,
+"forwarder": null,
+"ref": "winmmbase.dll!0xb520"
+},
+{
+"name": "mixerGetLineControlsW",
+"ordinal": 64,
+"rva": 46800,
+"forwarder": null,
+"ref": "winmmbase.dll!0xb6d0"
+},
+{
+"name": "mixerGetLineInfoA",
+"ordinal": 65,
+"rva": 45392,
+"forwarder": null,
+"ref": "winmmbase.dll!0xb150"
+},
+{
+"name": "mixerGetLineInfoW",
+"ordinal": 66,
+"rva": 45728,
+"forwarder": null,
+"ref": "winmmbase.dll!0xb2a0"
+},
+{
+"name": "mixerGetNumDevs",
+"ordinal": 67,
+"rva": 39392,
+"forwarder": null,
+"ref": "winmmbase.dll!0x99e0"
+},
+{
+"name": "mixerMessage",
+"ordinal": 68,
+"rva": 43840,
+"forwarder": null,
+"ref": "winmmbase.dll!0xab40"
+},
+{
+"name": "mixerOpen",
+"ordinal": 69,
+"rva": 41984,
+"forwarder": null,
+"ref": "winmmbase.dll!0xa400"
+},
+{
+"name": "mixerSetControlDetails",
+"ordinal": 70,
+"rva": 47648,
+"forwarder": null,
+"ref": "winmmbase.dll!0xba20"
+},
+{
+"name": "mmDrvInstall",
+"ordinal": 71,
+"rva": 52176,
+"forwarder": null,
+"ref": "winmmbase.dll!0xcbd0"
+},
+{
+"name": "mmGetCurrentTask",
+"ordinal": 72,
+"rva": 62928,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf5d0"
+},
+{
+"name": "mmTaskBlock",
+"ordinal": 73,
+"rva": 62752,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf520"
+},
+{
+"name": "mmTaskCreate",
+"ordinal": 74,
+"rva": 62960,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf5f0"
+},
+{
+"name": "mmTaskSignal",
+"ordinal": 75,
+"rva": 62848,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf580"
+},
+{
+"name": "mmTaskYield",
+"ordinal": 76,
+"rva": 62912,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf5c0"
+},
+{
+"name": "mmioAdvance",
+"ordinal": 77,
+"rva": 9072,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2370"
+},
+{
+"name": "mmioAscend",
+"ordinal": 78,
+"rva": 11792,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2e10"
+},
+{
+"name": "mmioClose",
+"ordinal": 79,
+"rva": 7040,
+"forwarder": null,
+"ref": "winmmbase.dll!0x1b80"
+},
+{
+"name": "mmioCreateChunk",
+"ordinal": 80,
+"rva": 12080,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2f30"
+},
+{
+"name": "mmioDescend",
+"ordinal": 81,
+"rva": 11232,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2be0"
+},
+{
+"name": "mmioFlush",
+"ordinal": 82,
+"rva": 8912,
+"forwarder": null,
+"ref": "winmmbase.dll!0x22d0"
+},
+{
+"name": "mmioGetInfo",
+"ordinal": 83,
+"rva": 8080,
+"forwarder": null,
+"ref": "winmmbase.dll!0x1f90"
+},
+{
+"name": "mmioInstallIOProcA",
+"ordinal": 84,
+"rva": 9696,
+"forwarder": null,
+"ref": "winmmbase.dll!0x25e0"
+},
+{
+"name": "mmioInstallIOProcW",
+"ordinal": 85,
+"rva": 9664,
+"forwarder": null,
+"ref": "winmmbase.dll!0x25c0"
+},
+{
+"name": "mmioOpenA",
+"ordinal": 86,
+"rva": 6384,
+"forwarder": null,
+"ref": "winmmbase.dll!0x18f0"
+},
+{
+"name": "mmioOpenW",
+"ordinal": 87,
+"rva": 5824,
+"forwarder": null,
+"ref": "winmmbase.dll!0x16c0"
+},
+{
+"name": "mmioRead",
+"ordinal": 88,
+"rva": 7168,
+"forwarder": null,
+"ref": "winmmbase.dll!0x1c00"
+},
+{
+"name": "mmioRenameA",
+"ordinal": 89,
+"rva": 5456,
+"forwarder": null,
+"ref": "winmmbase.dll!0x1550"
+},
+{
+"name": "mmioRenameW",
+"ordinal": 90,
+"rva": 5056,
+"forwarder": null,
+"ref": "winmmbase.dll!0x13c0"
+},
+{
+"name": "mmioSeek",
+"ordinal": 91,
+"rva": 7760,
+"forwarder": null,
+"ref": "winmmbase.dll!0x1e50"
+},
+{
+"name": "mmioSendMessage",
+"ordinal": 92,
+"rva": 10096,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2770"
+},
+{
+"name": "mmioSetBuffer",
+"ordinal": 93,
+"rva": 8352,
+"forwarder": null,
+"ref": "winmmbase.dll!0x20a0"
+},
+{
+"name": "mmioSetInfo",
+"ordinal": 94,
+"rva": 8208,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2010"
+},
+{
+"name": "mmioStringToFOURCCA",
+"ordinal": 95,
+"rva": 9536,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2540"
+},
+{
+"name": "mmioStringToFOURCCW",
+"ordinal": 96,
+"rva": 9360,
+"forwarder": null,
+"ref": "winmmbase.dll!0x2490"
+},
+{
+"name": "mmioWrite",
+"ordinal": 97,
+"rva": 7424,
+"forwarder": null,
+"ref": "winmmbase.dll!0x1d00"
+},
+{
+"name": "sndOpenSound",
+"ordinal": 98,
+"rva": 62160,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf2d0"
+},
+{
+"name": "waveInAddBuffer",
+"ordinal": 99,
+"rva": 71872,
+"forwarder": null,
+"ref": "winmmbase.dll!0x118c0"
+},
+{
+"name": "waveInClose",
+"ordinal": 100,
+"rva": 71248,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11650"
+},
+{
+"name": "waveInGetDevCapsA",
+"ordinal": 101,
+"rva": 69872,
+"forwarder": null,
+"ref": "winmmbase.dll!0x110f0"
+},
+{
+"name": "waveInGetDevCapsW",
+"ordinal": 102,
+"rva": 69632,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11000"
+},
+{
+"name": "waveInGetErrorTextA",
+"ordinal": 103,
+"rva": 66368,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10340"
+},
+{
+"name": "waveInGetErrorTextW",
+"ordinal": 104,
+"rva": 66336,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10320"
+},
+{
+"name": "waveInGetID",
+"ordinal": 105,
+"rva": 72624,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11bb0"
+},
+{
+"name": "waveInGetNumDevs",
+"ordinal": 106,
+"rva": 69168,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10e30"
+},
+{
+"name": "waveInGetPosition",
+"ordinal": 107,
+"rva": 72288,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11a60"
+},
+{
+"name": "waveInMessage",
+"ordinal": 108,
+"rva": 69488,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10f70"
+},
+{
+"name": "waveInOpen",
+"ordinal": 109,
+"rva": 70288,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11290"
+},
+{
+"name": "waveInPrepareHeader",
+"ordinal": 110,
+"rva": 71520,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11760"
+},
+{
+"name": "waveInReset",
+"ordinal": 111,
+"rva": 72192,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11a00"
+},
+{
+"name": "waveInStart",
+"ordinal": 112,
+"rva": 72032,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11960"
+},
+{
+"name": "waveInStop",
+"ordinal": 113,
+"rva": 72112,
+"forwarder": null,
+"ref": "winmmbase.dll!0x119b0"
+},
+{
+"name": "waveInUnprepareHeader",
+"ordinal": 114,
+"rva": 71680,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11800"
+},
+{
+"name": "waveOutBreakLoop",
+"ordinal": 115,
+"rva": 68624,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10c10"
+},
+{
+"name": "waveOutClose",
+"ordinal": 116,
+"rva": 67584,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10800"
+},
+{
+"name": "waveOutGetDevCapsA",
+"ordinal": 117,
+"rva": 65440,
+"forwarder": null,
+"ref": "winmmbase.dll!0xffa0"
+},
+{
+"name": "waveOutGetDevCapsW",
+"ordinal": 118,
+"rva": 65024,
+"forwarder": null,
+"ref": "winmmbase.dll!0xfe00"
+},
+{
+"name": "waveOutGetErrorTextA",
+"ordinal": 119,
+"rva": 66368,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10340"
+},
+{
+"name": "waveOutGetErrorTextW",
+"ordinal": 120,
+"rva": 66336,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10320"
+},
+{
+"name": "waveOutGetID",
+"ordinal": 121,
+"rva": 72704,
+"forwarder": null,
+"ref": "winmmbase.dll!0x11c00"
+},
+{
+"name": "waveOutGetNumDevs",
+"ordinal": 122,
+"rva": 64736,
+"forwarder": null,
+"ref": "winmmbase.dll!0xfce0"
+},
+{
+"name": "waveOutGetPitch",
+"ordinal": 123,
+"rva": 68816,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10cd0"
+},
+{
+"name": "waveOutGetPlaybackRate",
+"ordinal": 124,
+"rva": 68992,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10d80"
+},
+{
+"name": "waveOutGetPosition",
+"ordinal": 125,
+"rva": 68704,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10c60"
+},
+{
+"name": "waveOutGetVolume",
+"ordinal": 126,
+"rva": 65872,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10150"
+},
+{
+"name": "waveOutMessage",
+"ordinal": 127,
+"rva": 64880,
+"forwarder": null,
+"ref": "winmmbase.dll!0xfd70"
+},
+{
+"name": "waveOutOpen",
+"ordinal": 128,
+"rva": 66480,
+"forwarder": null,
+"ref": "winmmbase.dll!0x103b0"
+},
+{
+"name": "waveOutPause",
+"ordinal": 129,
+"rva": 68368,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10b10"
+},
+{
+"name": "waveOutPrepareHeader",
+"ordinal": 130,
+"rva": 67856,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10910"
+},
+{
+"name": "waveOutReset",
+"ordinal": 131,
+"rva": 68528,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10bb0"
+},
+{
+"name": "waveOutRestart",
+"ordinal": 132,
+"rva": 68448,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10b60"
+},
+{
+"name": "waveOutSetPitch",
+"ordinal": 133,
+"rva": 68912,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10d30"
+},
+{
+"name": "waveOutSetPlaybackRate",
+"ordinal": 134,
+"rva": 69088,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10de0"
+},
+{
+"name": "waveOutSetVolume",
+"ordinal": 135,
+"rva": 66064,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10210"
+},
+{
+"name": "waveOutUnprepareHeader",
+"ordinal": 136,
+"rva": 68016,
+"forwarder": null,
+"ref": "winmmbase.dll!0x109b0"
+},
+{
+"name": "waveOutWrite",
+"ordinal": 137,
+"rva": 68208,
+"forwarder": null,
+"ref": "winmmbase.dll!0x10a70"
+},
+{
+"name": "winmmbaseFreeMMEHandles",
+"ordinal": 138,
+"rva": 61568,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf080"
+},
+{
+"name": "winmmbaseGetWOWHandle",
+"ordinal": 139,
+"rva": 62096,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf290"
+},
+{
+"name": "winmmbaseHandle32FromHandle16",
+"ordinal": 140,
+"rva": 61440,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf000"
+},
+{
+"name": "winmmbaseSetWOWHandle",
+"ordinal": 141,
+"rva": 62112,
+"forwarder": null,
+"ref": "winmmbase.dll!0xf2a0"
+}
+]
