@@ -549,7 +549,12 @@ and stop with `PlaySound(NULL, NULL, 0)`.
 * `mciSendStringW` -> `mciSendStringInternal` (!0xbb20 area):
   - **The command string is wcslen'd BEFORE the NULL check** (asm: length scan
     at winmm!0x18000bbaf, NULL test at !0x18000bbcf). `mciSendString(NULL)`
-    faults; never test it.
+    faults; never test it. **[fact-check pass 2]** `mciSendStringW` does no
+    NULL check of its own before `mciSendStringInternal`, and
+    `mciSendStringA` faults even earlier: `AllocUnicodeStr` runs `strlen` on the
+    command with no NULL test. So both forms fault on NULL. `mciSendStringA`
+    allocates its return buffers first (allocation failure -> 264), and a
+    failed copy back into the caller's buffer also -> 264.
   - Tabs outside quotes become spaces; quotes toggle literal mode.
   - `lpstrReturnString[0] = 0` first when non-NULL.
   - `mciSeparateCommandParts` splits verb / device / rest. Device "new" with
