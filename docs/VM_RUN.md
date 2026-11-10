@@ -1,8 +1,17 @@
 # Running the corpus on the Win10 VM
 
-The oracle is the local Windows 10 22H2 guest (`~/w10lab`, build 19045.2965, auto-logon Administrator). These tools
-wrap `~/w10lab/tools/win10_run.sh`; never start qemu any other way. One guest runs at a time on the host (the script
-holds `~/w10lab/oracle.lock`, which is not FIFO and is shared by every corpus), so batch many areas per boot.
+The oracle is a Windows 10 22H2 guest (build 19045.2965, auto-logon Administrator). The tools here do not boot it
+themselves: they call a runner script named by the `WIN10_RUN` environment variable (default empty; the tools then
+print an error and exit 2).
+
+Runner interface: `WIN10_RUN PAYLOAD_DIR BOOT_DIR`, with optional environment `W10_EXTRA` (extra QEMU arguments, used
+for the virtual audio devices) and `ORACLE_TIMEOUT` (seconds before the guest is killed). The runner must boot the
+guest with the contents of `PAYLOAD_DIR` available as a read-only CD, run `run.cmd` from it automatically at logon,
+capture the guest's COM1 serial output into `BOOT_DIR/serial.log`, and power the guest off when `run.cmd` finishes or
+the timeout expires. For wav-backed audio modes the `W10_EXTRA` path points into `BOOT_DIR` (`out.wav`). Only one
+guest should run at a time, so batch many areas per boot.
+
+    export WIN10_RUN=/path/to/your/boot-win10-guest.sh
 
     make                                          # build/<area>.exe + build/tools/vmrun.exe
     tools/vm_run.sh core_smoke                    # default audio (hda), results/win10/core_smoke.txt
@@ -47,7 +56,7 @@ holds `~/w10lab/oracle.lock`, which is not FIFO and is shared by every corpus), 
 
    On timeout the job (exe and every child it spawned) is killed, `exit=0xDEAD0001`. Per-exe timeout: the largest
    `VM_TIMEOUT: N` comment in `tests/<area>/*.c`, else 120 s (`--timeout` overrides).
-5. **Boot**: `W10_EXTRA=<audio devices> ORACLE_TIMEOUT=<sum of timeouts + 180 + ready> win10_run.sh PAYLOAD BOOTDIR`.
+5. **Boot**: `W10_EXTRA=<audio devices> ORACLE_TIMEOUT=<sum of timeouts + 180 + ready> "$WIN10_RUN" PAYLOAD BOOTDIR`.
    Exes are packed into boots so that this stays under 840 s. The boot dir keeps `serial.log`, `run.log` and, for wav
    modes, `out.wav`.
 6. **Split**: `tools/vm_split.py serial.log OUT --expect a,b --audio MODE` writes `OUT/<area>.txt` and appends a status
@@ -73,7 +82,7 @@ holds `~/w10lab/oracle.lock`, which is not FIFO and is shared by every corpus), 
 
 `--all` (every `build/*.exe`; `dx_*` only with `--destructive`), `--destructive`, `--audio MODE` (below),
 `--filter SUBSTR` (argv[1] of every exe), `--timeout S`, `--ready S`, `--out DIR` (default `results/win10` for `hda`,
-`results/win10-<MODE>` otherwise), `--runs DIR` (default `~/w10lab/runs`), `--tag NAME`, `--no-build`,
+`results/win10-<MODE>` otherwise), `--runs DIR` (default `build/vmruns`), `--tag NAME`, `--no-build`,
 `--extra FILE` (copied into the payload, e.g. a data file; the payload is a read-only CD in the guest, so tests copy
 data into their scratch dir), `--dry-run`.
 

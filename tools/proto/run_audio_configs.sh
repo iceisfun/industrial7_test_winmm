@@ -3,6 +3,7 @@
 # wav capture for wav-backed configs).   run_audio_configs.sh OUTROOT config...
 # configs: noaudio hda-duplex-none hda-duplex-wav hda-output-wav ich9-micro-wav usb-audio-wav legacy-isa-pci multi
 set -u
+[ -n "${WIN10_RUN:-}" ] && [ -x "$WIN10_RUN" ] || { echo "set WIN10_RUN to a script that boots a Win10 22H2 guest with a payload dir and collects COM1 output (usage: WIN10_RUN PAYLOAD_DIR BOOT_DIR; see docs/VM_RUN.md)" >&2; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="${1:?outroot}"; shift; mkdir -p "$ROOT"
 make_payload() { local d="$ROOT/payload"; rm -rf "$d"; mkdir -p "$d"; cp "$HERE/audprobe.exe" "$HERE/run.cmd" "$d/"; echo "$d"; }
 PAY="$(make_payload)"
@@ -22,7 +23,7 @@ for cfg in "$@"; do
     *) echo "unknown config $cfg" >&2; continue ;;
   esac
   echo "== $cfg: $EX"; T0=$(date +%s)
-  W10_EXTRA="$EX" ORACLE_TIMEOUT=900 "$HOME/w10lab/tools/win10_run.sh" "$PAY" "$OUT" > "$OUT/run.log" 2>&1
+  W10_EXTRA="$EX" ORACLE_TIMEOUT=900 "$WIN10_RUN" "$PAY" "$OUT" > "$OUT/run.log" 2>&1
   echo "== $cfg done in $(( $(date +%s) - T0 ))s; $(wc -c < "$OUT/serial.log") bytes serial"
   rm -rf "$OUT/stage" "$OUT/payload.iso"
   [ -f "$WAV" ] && python3 -I "$HERE/wavscan.py" "$WAV" > "$OUT/wavscan.txt" 2>&1

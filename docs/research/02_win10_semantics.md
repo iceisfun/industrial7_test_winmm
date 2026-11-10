@@ -105,7 +105,7 @@ buffer pump all live in wdmaud.drv **[inference: wdmaud.drv not in corpus]**.
   list -> 2. So `waveOutGetDevCaps(WAVE_MAPPER)` with 0 devices -> 2 **[VM]**.
 * `joyGetNumDevs` returns the constant **16** regardless of hardware.
 * **[VM, pass 2: audprobe runs `winmm-audio-r1/hda-duplex-wav` and
-  `winmm-audio-r2/noaudio` under ~/w10lab/runs]** Observed counts
+  `winmm-audio-r2/noaudio` (raw logs kept outside this repo)]** Observed counts
   (waveOut/waveIn/midiOut/midiIn/mixer/aux/joy):
   no audio device `0/0/1/0/0/0/16`; one QEMU `intel-hda` + `hda-duplex`
   `1/1/1/0/2/0/16` (one mixer per endpoint: "Speakers (High Definition
@@ -829,8 +829,8 @@ winmmbase `waveOutOpen`, `waveOutGetDevCapsW/A`, `waveOutGetID`,
 `timeGetDevCaps`, `timeBeginPeriod`; winmm `mciSendStringW/A`,
 `AllocUnicodeStr` and the `mciSendStringInternal` asm. Also read the VM serial
 logs of the earlier audio probe (`tools/proto/audprobe.c`) under
-`~/w10lab/runs/winmm-audio-r1/hda-duplex-wav` (QEMU intel-hda + hda-duplex)
-and `~/w10lab/runs/winmm-audio-r2/noaudio` (no audio device), both Win10
+the `winmm-audio-r1/hda-duplex-wav` run (QEMU intel-hda + hda-duplex)
+and the `winmm-audio-r2/noaudio` run (no audio device), both Win10
 19045.2965. Those runs (2026-11-09 18:16 / 18:25) predate pass 1's statement
 that nothing had been observed on the VM; their results are now folded into
 sections 1, 2.1, 2.4, 8 and 10 and marked **[VM]**.
@@ -888,7 +888,7 @@ argument evaluation order is unspecified, so the line does NOT disprove the
 decomp. `fc02probe` reads `h` in a separate statement (`wo_open_badid_h`).
 
 Confirmed on the VM by `tools/proto/fc02probe.c` (pass 2 boot
-`~/w10lab/runs/fc02p2/hda`: QEMU intel-hda + hda-duplex, Win10 19045.2965;
+`fc02p2/hda`: QEMU intel-hda + hda-duplex, Win10 19045.2965;
 the probe ran twice in one boot with byte-identical output):
 * mmsystemGetVersion 778 (0x30A); counts 1/1/1/0/2/0/16.
 * waveOutOpen: pwfx NULL -> 11 (also with phwo NULL), phwo NULL -> 11,
@@ -952,7 +952,7 @@ and `ms_open_id0` read 4 and the midiStream property/out checks did not run.
 Those remain decomp-only.
 
 Still UNVERIFIED on the VM: the zero-device run of fc02probe (queued as
-`~/w10lab/runs/fc02p2/noa`, results not in at the time of writing;
+`fc02p2/noa`, results not in at the time of writing;
 the audprobe zero-device results above cover counts, opens, caps and
 PlaySound); MCI `open new type waveaudio` with zero wave devices; every
 wdmaud callback-ordering item (WOM_OPEN/DONE/CLOSE order, close with queued

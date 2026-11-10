@@ -29,7 +29,7 @@ These pass identically with and without an audio device.
 
 ## VM-observed (driver behaviour: wdmaud.drv is not in the decomp corpus)
 
-Observed in `results/wp-hda` / `results/wp2-hda` (boot dirs `~/w10lab/runs/wp-hda-*`, `wp2-hda-*`), guest with
+Observed in `results/wp-hda` / `results/wp2-hda`, guest with
 1 waveOut ("Speakers (High Definition Audio", mid 1 pid 65535, dwSupport 0x2e), mapper "Microsoft Sound Mapper".
 
 Position (`waveOutGetPosition`):

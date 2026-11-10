@@ -1,8 +1,7 @@
 # 05 - Area plan for the winmm corpus (first ultracode pass)
 
 Role: AREA PLANNER. Date: 2026-11-10. Inputs: `docs/research/01_export_map.md` .. `04_vm_audio_design.md`,
-`tools/winmm_exports.{txt,json}`, `tools/winmmbase_exports.txt`, `tools/mmdevapi_exports.txt`, the method docs
-in `/home/iceisfun/test_pattern/docs` (METHOD.md, WRITING_TESTS.md, SAFETY.md, WORKFLOW.md), the harness
+`tools/winmm_exports.{txt,json}`, `tools/winmmbase_exports.txt`, `tools/mmdevapi_exports.txt`, the harness
 (`common/t.h`, `common/modules.h`, `Makefile`), plus spot decomp reads from the Win10 reference corpus
 (`/api/function/winmm/{mciGetCreatorTask,mciGetYieldProc,mciSetYieldProc,mciGetDriverData,mciDriverYield,mciGetDeviceIDFromElementIDW}/decomp`,
 `/api/function/winmmbase/{mmioSendMessage,mmioSetBuffer,mmioRenameW,mmioFlush,mmioAdvance,midiConnect,auxSetVolume}/decomp`).
@@ -21,7 +20,7 @@ read the decomp or record the value before any hard CHECK.
 ## 1. How the areas were cut
 
 1. **Consumer slices come first and go deep.** Doc 03 section D ranks them. In order:
-   - timers (3 areas): `time_basic`, `time_events`, `time_event_lifetime`. Industrial7 stubs timeSetEvent.
+   - timers (3 areas): `time_basic`, `time_events`, `time_event_lifetime`.
      That makes these the highest-value tests, and they need no device.
    - PlaySound (2 areas): the headless `playsound_contract` and the device-gated `playsound_device`.
    - waveOut playback (5 areas, plus formats): open contract, header state machine, playback/position/loop,

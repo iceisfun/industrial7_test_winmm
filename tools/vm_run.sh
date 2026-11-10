@@ -17,22 +17,22 @@
 #   --timeout SECS    per-exe timeout (default: max "VM_TIMEOUT: N" comment in tests/<area>/*.c, else 120)
 #   --ready SECS      audio readiness budget in the guest (vmrun --audio-ready, default 90)
 #   --out DIR         results dir (default results/win10 for hda, results/win10-<MODE> otherwise)
-#   --runs DIR        where boot dirs go (default ~/w10lab/runs)
+#   --runs DIR        where boot dirs go (default build/vmruns)
 #   --tag NAME        boot dir name prefix (default winmm-<MODE>)
 #   --no-build        do not run make first
 #   --extra FILE      copy FILE into the payload too (repeatable)
 #   --dry-run         build the payload(s), print run.cmd, do not boot
 #
 # Stages the exes + build/tools/vmrun.exe + a generated run.cmd into a payload dir and boots
-# ~/w10lab/tools/win10_run.sh (one guest at a time: it holds ~/w10lab/oracle.lock and blocks). run.cmd first runs
+# the script named by $WIN10_RUN (interface in docs/VM_RUN.md; one guest at a time). run.cmd first runs
 # 'vmrun --audio-ready' (services RUNNING, device counts stable; '@@I7 AUDIO' line), then every exe under vmrun (framed,
 # per-exe timeout, job object). tools/vm_split.py splits serial.log into <out>/<area>.txt and validates every area.
 # Exes are packed into boots under an 840 s ORACLE_TIMEOUT cap (sum of per-exe timeouts + 180 s overhead).
 # Exit code: 0 only if every area is PASS; 1 if any is FAIL/TIMEOUT/CRASHED/TRUNCATED/MISSING; 2 on usage/build/lab errors.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LAB="${W10LAB:-$HOME/w10lab}"
-OUT=""; RUNS="$LAB/runs"; TAG=""; FILTER=""; TMO=""; ALL=0; DX=0; BUILD=1; DRY=0; AUDIO=hda; READY=90; EXTRA=(); ITEMS=()
+WIN10_RUN="${WIN10_RUN:-}"
+OUT=""; RUNS="$ROOT/build/vmruns"; TAG=""; FILTER=""; TMO=""; ALL=0; DX=0; BUILD=1; DRY=0; AUDIO=hda; READY=90; EXTRA=(); ITEMS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --all) ALL=1 ;;
@@ -61,10 +61,9 @@ cd "$ROOT"
 if [ "$BUILD" = 1 ]; then make -s all >&2 || { echo "vm_run: build failed" >&2; exit 2; }; fi
 [ -f build/tools/vmrun.exe ] || { echo "vm_run: build/tools/vmrun.exe missing (make tools)" >&2; exit 2; }
 if [ "$DRY" = 0 ]; then
-  [ -x "$LAB/tools/win10_run.sh" ] || { echo "vm_run: $LAB/tools/win10_run.sh missing" >&2; exit 2; }
-  if [ ! -f "$LAB/LAB_READY" ] || [ ! -f "${W10_BASE:-$LAB/win10base.qcow2}" ]; then
-    echo "vm_run: lab not ready ($LAB/LAB_READY or base image missing)" >&2; exit 2
-  fi
+  [ -n "$WIN10_RUN" ] && [ -x "$WIN10_RUN" ] || {
+    echo "vm_run: set WIN10_RUN to an executable script that boots a Windows 10 22H2 guest with a payload dir and collects" >&2
+    echo "vm_run: COM1 output into serial.log (usage: WIN10_RUN PAYLOAD_DIR BOOT_DIR; see docs/VM_RUN.md)" >&2; exit 2; }
 fi
 
 EXES=()
@@ -87,7 +86,7 @@ tmo_for() {
   echo "${t:-120}"
 }
 
-# QEMU audio devices per mode (W10_EXTRA; win10_run.sh appends it to the qemu command line)
+# QEMU audio devices per mode (W10_EXTRA; the runner appends it to the qemu command line)
 audio_extra() { # audio_extra <bootdir>
   local wav="$1/out.wav"
   case "$AUDIO" in
@@ -135,7 +134,7 @@ for boot in "${BOOTS[@]}"; do
   OT=$((sum + OVER)); [ $OT -gt $CAP ] && OT=$CAP
   if [ "$DRY" = 1 ]; then echo "== boot $b: $PAY (ORACLE_TIMEOUT=$OT) W10_EXTRA='$(audio_extra "$BOOTDIR")'"; ls "$PAY"; cat "$PAY/run.cmd"; continue; fi
   echo "vm_run: boot $b/${#BOOTS[@]} audio=$AUDIO: ${names[*]} (ORACLE_TIMEOUT=$OT) -> $BOOTDIR" >&2
-  W10_EXTRA="$(audio_extra "$BOOTDIR")" ORACLE_TIMEOUT=$OT "$LAB/tools/win10_run.sh" "$PAY" "$BOOTDIR" >&2
+  W10_EXTRA="$(audio_extra "$BOOTDIR")" ORACLE_TIMEOUT=$OT "$WIN10_RUN" "$PAY" "$BOOTDIR" >&2
   rm -f "$BOOTDIR/payload.iso"; rm -rf "$BOOTDIR/stage"
   [ -s "$BOOTDIR/serial.log" ] || echo "vm_run: empty serial.log for boot $b" >&2
   grep -a -q "@@I7 RUNEND" "$BOOTDIR/serial.log" 2>/dev/null || echo "vm_run: boot $b did not reach RUNEND (guest died or ORACLE_TIMEOUT)" >&2

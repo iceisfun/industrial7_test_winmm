@@ -1,12 +1,12 @@
 # 04: VM audio design (what the Win10 oracle guest exposes, and how tests use it)
 
-Question: when the corpus runs on the local Win10 22H2 oracle (`~/w10lab/tools/win10_run.sh`, build 19045.2965,
+Question: when the corpus runs on the Win10 22H2 oracle (a `WIN10_RUN` runner, see docs/VM_RUN.md; build 19045.2965,
 auto-logon Administrator), which winmm / mmdevapi devices exist at run.cmd time, under which QEMU audio
 configuration, how fast do they appear, and can a payload's real playback be checked on the host?
 
 Everything below is measured with `tools/proto/audprobe.c` (guest probe) driven by
 `tools/proto/run_audio_configs.sh` (one boot per QEMU configuration) and `tools/proto/wavscan.py`
-(host-side analysis of the QEMU `wav` audiodev capture). Raw logs: `~/w10lab/runs/winmm-audio-r1`,
+(host-side analysis of the QEMU `wav` audiodev capture). Raw logs (kept outside this repo): `winmm-audio-r1`,
 `-r2`, `-r3` (serial.log, out.wav, wavscan.txt per configuration; r1 = hda-duplex-wav, r2 = noaudio, r3 =
 hda-output-wav and multi. `winmm-audio-r2/multi` is an aborted attempt with an empty serial.log: every multi
 number below comes from r3). Reproduce with
@@ -234,7 +234,7 @@ running headless next to the lock script.
 
 ## Verification (adversarial fact-check pass)
 
-Re-read every raw log (`~/w10lab/runs/winmm-audio-r1/hda-duplex-wav`, `-r2/noaudio`, `-r3/hda-output-wav`,
+Re-read every raw log (`winmm-audio-r1/hda-duplex-wav`, `-r2/noaudio`, `-r3/hda-output-wav`,
 `-r3/multi`: serial.log and run.log), re-ran `tools/proto/wavscan.py` on the three out.wav files (output
 identical to the stored wavscan.txt; all three RIFF headers are finalized), checked flag values against the
 mingw `mmeapi.h`, and re-read the winmmbase decomp of `winmmWaitForService`, `ClientUpdatePnpInfo` (and its

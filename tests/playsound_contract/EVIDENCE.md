@@ -33,8 +33,9 @@ configurations (`hda`: 1 waveOut device; `noaudio`: 0), **[K]** general Win32 kn
   LoadStringW(winmm) miss -> FALSE before any post. Unknown ids are pre-checked with LoadStringW in the test.
 * Name path: copied with StringCbCopyW into 256 WCHARs (>= 256 chars -> FALSE under NODEFAULT); alias lookup;
   SND_SYSTEM skips the file search (async posts -> TRUE even for unknown names; sync -> soundLoadFile fails -> FALSE).
-  Rooted path that does not exist: ".WAV" appended if it fits and posted unchecked (async TRUE for length <= 251,
-  FALSE from 252, where the extension no longer fits and the search fails). Relative: GetFileAttributesW against the
+  Rooted path that does not exist: ".WAV" appended if it fits and posted unchecked (async TRUE for length <= 255: from 252
+  the extension no longer fits, the search runs, misses and falls through to the post as for relative names [VM];
+  FALSE from 256 where the copy fails). Relative: GetFileAttributesW against the
   current directory, SearchPathW(NULL, name, ".WAV"), MediaPath; miss -> FALSE even for ASYNC.
 * PlaySoundA: converts names (psz > 0xFFFF and not plain MEMORY, or RESOURCE) with CP_ACP into 256 WCHARs; 256+ chars
   -> FALSE; MEMORY pointers and MAKEINTRESOURCE ids pass unchanged. sndPlaySoundA = PlaySoundA(psz, NULL, f);
