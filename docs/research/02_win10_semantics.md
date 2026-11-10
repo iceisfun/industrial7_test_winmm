@@ -132,7 +132,7 @@ Exact validation order:
    NULL). With WAVE_FORMAT_QUERY `phwo` is ignored and may be NULL.
 7. `ClientUpdatePnpInfo`; zero devices -> **2**.
 8. Resolve the driver (WAVE_MAPPED forces the mapper driver): failure -> **2**.
-9. Mapper requested but no mapper driver installed -> try every device id
+9. Mapper requested and the mapper entry's driver proc is NULL -> try every device id
    0..N-1 recursively, returning the first success, else the last error
    (initial value 4). With WAVE_MAPPED: ask the preferred-device logic
    (internal message 0x805) and reopen through it.
@@ -195,7 +195,7 @@ All validate the handle (type 1) after `ClientUpdatePnpInfo` and forward:
 
 | API | check before forward | driver msg |
 |---|---|---|
-| waveOutClose (!0x10800) | handle (5); busy -> 12 | WODM_CLOSE 6; nonzero driver result (e.g. 33 while buffers queued) is returned and the handle stays open |
+| waveOutClose (!0x10800) | handle (5); busy -> 12; a "device gone" handle is freed without a driver call and returns 0 | WODM_CLOSE 6; nonzero driver result (e.g. 33 while buffers queued) is returned and the handle stays open |
 | waveOutPause / Restart / BreakLoop | handle (5) | 10 / 11 / 0x14 |
 | waveOutReset (!0x10bb0) | handle (5) | 0x0C; 6 on gone handle -> 0 |
 | waveOutGetPosition (!0x10c60) | `pmmt == NULL` -> 11 (before the handle check), then handle | 0x0D with cbmmt (driver validates cbmmt and may change wType to a supported format) |
@@ -257,9 +257,14 @@ creates a handle and sends no callback.
    translated to the mapper for MIDI.)
 3. CALLBACK_WINDOW with a non-window -> 11.
 4. `*phmo = NULL`; `ClientUpdatePnpInfo`; `midiReferenceDriverById` failure
-   (bad id, or empty list for the mapper) -> 2.
-5. Mapper with no mapper driver: 0 devices -> **6**, else try each device.
-   A device whose driver has no entry proc -> 6.
+   (bad id, or no driver flagged "mapper" in the list) -> 2.
+   **[fact-check correction]** `MidiMapperInit` only loads midimap when
+   `wTotalMidiInDevs + wTotalMidiOutDevs != 0`, so with zero MIDI devices
+   `midiOutOpen(MIDI_MAPPER)` returns **2**, not 6.
+5. Mapper entry present but its driver proc (offset 0x50) is NULL: if
+   `wTotalMidiOutDevs == 0` -> 6, else try each device id 0..N-1 (first
+   success wins, else the last error). A specific id whose driver has no
+   entry proc -> 6.
 6. `NewHandle(type 3)` failure -> 7; MODM_OPEN (3); success stores handle.
 The mapper is midimap.dll (`MidiMapperInit`) which routes to the default
 synth, normally "Microsoft GS Wavetable Synth" **[VM]**.
@@ -272,7 +277,9 @@ synth, normally "Microsoft GS Wavetable Synth" **[VM]**.
   || dwFlags & 0xFFFFCFD0` -> 11; not PREPARED -> **64**; INQUEUE (4) -> **65**;
   `dwBufferLength == 0` -> 11; then the handle (5); on a stream handle -> 8.
 * `midiOutPrepareHeader` (!0x8110): handle FIRST (5), then `ValidateHeader`
-  (11), already PREPARED -> 0; `dwFlags` reset to 0 before MODM_PREPARE (5);
+  (11: NULL, flags & 0xFFFFCFD0, cbmh < 44 for a midiOut handle, and
+  **cbmh < 0x70 = sizeof(MIDIHDR) for a stream handle** [fact-check
+  addition]), already PREPARED -> 0; `dwFlags` reset to 0 before MODM_PREPARE (5);
   driver 8 -> treated as success. Stream handles: `dwBufferLength > 0x10000`
   -> 11; a shadow header per stream device is allocated.
 * `midiOutClose` (!0x8000): like waveOutClose (MODM_CLOSE 4).
@@ -300,8 +307,10 @@ synth, normally "Microsoft GS Wavetable Synth" **[VM]**.
 ### midiIn (!0x8d90 midiInOpen)
 `phmi == NULL` -> 11 (falls through to the final return); flags mask
 `0xBFDA` (mapper) / `0x3FDA` -> 10 (so MIDI_IO_STATUS 0x20 is accepted);
-CALLBACK_WINDOW non-window -> 7 (note: NOMEM, the preloaded value, not 11
-**[VM]**); bad id -> 2; no driver entry -> 6; MIDM_OPEN 0x37.
+CALLBACK_WINDOW non-window -> **11** **[fact-check correction: the original
+text said 7; the 7 is only preloaded into a local, the failing IsWindow test
+skips the whole block and falls through to `return 0xb`]**; bad id -> 2; no
+driver entry -> 6; MIDM_OPEN 0x37.
 
 ## 4. Mixer (!0xa400 mixerOpen and friends)
 
@@ -351,9 +360,10 @@ non-dx test.
 
 ### kernel32 implementation (`TimeInit` one-shot)
 `NtQueryTimerResolution(max, min, cur)`: `TDD_MAXRESOLUTION` (= reported
-wPeriodMin) = round(min/10000) clamped to >= 1 (normally **1**); the upper
-bound `uMax` = ceil(maxRes/10000) (normally **16** for the 15.625 ms tick;
-0x37 = 55 if the query is odd).
+wPeriodMin) = (min + 9900)/10000 clamped to >= 1 (normally **1**; 10 if the
+query fails); the upper bound `uMax` = ceil(maxRes/10000) (normally **16**
+for the 15.625 ms tick; 0x37 = 55 if the query fails or the value is
+>= 55 ms).
 
 * `timeGetDevCaps` (!0x22840): `cbtc < 8 || ptc == NULL` -> **97
   (TIMERR_NOCANDO)**; else wPeriodMin = TDD_MAXRESOLUTION, **wPeriodMax =
@@ -403,6 +413,14 @@ bound `uMax` = ceil(maxRes/10000) (normally **16** for the 15.625 ms tick;
   `timeEndPeriod`. With TIME_KILL_SYNCHRONOUS on the event and a call from a
   thread other than the timer thread while that callback runs, it waits for
   the callback to finish. Killing an already-fired one-shot -> 97.
+* **[fact-check addition] `timeKillEvent(0)` hazard:** the lookup is
+  `slot = id & 0xF; slots[slot].id == id`, and a free slot holds id 0. So once
+  the timer thread exists, `timeKillEvent(0)` with slot 0 free matches the
+  empty slot, calls `timeEndPeriod` with that slot's stale period and returns
+  the `NtCancelTimer` result (0 when the timer handle is valid), not 97.
+  Before any timeSetEvent in the process (no timer thread) it returns 97.
+  Do not use id 0 as the "unknown id" in tests; use a nonzero id such as
+  0x12345 (slot 5, never equal to a live generation-tagged id).
 
 ## 7. mmio (winmmbase)
 
@@ -451,14 +469,22 @@ bound `uMax` = ceil(maxRes/10000) (normally **16** for the 15.625 ms tick;
   FILENAME 0x20000, RESOURCE 0x40004, SENTRY 0x80000, RING 0x100000,
   SYSTEM 0x200000.
 * SND_NOSTOP while a sound is playing -> FALSE.
-* `psz == NULL` (any flags) or an empty string: stops the current sound and
-  returns **TRUE**.
+* `psz == NULL`: stops the current sound (`sndMessage(NULL)` -> `soundFree`,
+  returns **TRUE**); with SND_ASYNC (and no SND_MEMORY) the stop is posted
+  to the notify window instead and the PostMessage result is returned.
+  An empty string (no SND_MEMORY) returns **TRUE** immediately
+  **[fact-check correction: the early `return 1` happens before
+  `sndMessage` and before the 0x3CD stop post, so the decomp does not show
+  an empty name stopping the current sound]**.
 * SND_ASYNC requires the notify window (`CreatehwndNotify`); async plays are
   posted to it (message 0x3CC) and the API returns the PostMessage result.
 * SND_ASYNC|SND_MEMORY: the image must start with 'RIFF' and have 'WAVE' at
-  offset 8, else FALSE; size = RIFF length + 8 must be < 2 MiB; it is copied,
-  so the caller's buffer may be freed after return. Synchronous SND_MEMORY
-  plays from the caller's buffer.
+  offset 8, else FALSE; RIFF length + 8 wrapping below 8 -> FALSE. When
+  size = RIFF length + 8 is in [1, 0x1FFFFF] the image is copied (LocalAlloc)
+  so the caller's buffer may be freed after return. **[fact-check
+  correction]** A larger image is NOT rejected: it is simply not copied and
+  the async play uses the caller's buffer. Synchronous SND_MEMORY plays from
+  the caller's buffer.
 * SND_RESOURCE: `FindResource(hmod, psz, "SOUND")` then "WAVE"; missing ->
   FALSE.
 * SND_ALIAS_ID: id translated by `TransAlias` and loaded as a string; unknown
@@ -542,8 +568,11 @@ joyGetPosEx/joyGetDevCaps **[VM]**.
   then broadcasts DRV_LOAD/DRV_ENABLE/DRV_OPEN (msg 3 = DRV_OPEN returns the
   instance id); a zero DRV_OPEN result frees the driver and returns NULL.
   Driver names come from the Drivers32 section unless a section is given.
-* `SendDriverMessage`, `DefDriverProc` (DRV_LOAD/FREE/ENABLE/DISABLE return 1,
-  DRV_QUERYCONFIGURE 0, unknown 0), `CloseDriver`, `DrvGetModuleHandle` =
+* `SendDriverMessage`, `DefDriverProc` (returns 1 for DRV_LOAD 1, DRV_ENABLE
+  2, DRV_DISABLE 5, DRV_FREE 6, DRV_INSTALL 9, DRV_REMOVE 10; 0 for 0,
+  DRV_OPEN 3, DRV_CLOSE 4, DRV_CONFIGURE 7, DRV_QUERYCONFIGURE 8 and anything
+  above 10) **[fact-check: INSTALL/REMOVE/OPEN/CLOSE added from the decomp]**,
+  `CloseDriver`, `DrvGetModuleHandle` =
   `GetDriverModuleHandle`.
 * `DriverCallback`: see 2.7. Returns TRUE/FALSE.
 * `mmTaskCreate/Block/Signal/Yield`, `mmGetCurrentTask` = thread ids.
