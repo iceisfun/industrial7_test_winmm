@@ -2,7 +2,8 @@
 /* Plain WAVE_FORMAT_PCM negotiation with WAVE_FORMAT_QUERY: one TEST per (direction, target, flags, rate); one cell
  * per (bits, channels). Targets: WAVE_MAPPER, device 0, the 0xFFFF mapper alias, and id 0 with WAVE_MAPPED.
  * The core (8/16-bit, 1-2 ch, 8000..48000 Hz) is pinned to 0 wherever a device exists; the 24/32-bit and
- * 96k/192k cells come from the shared-mode engine of the endpoint and are only noted when not 0.
+ * 96k/192k cells come from the shared-mode engine of the endpoint and are only noted when not 0 (on the Win10 VM
+ * every cell of the 7 x 4 x 2 grid is 0 on every target, DIRECT included, out and in).
  * VM_TIMEOUT: 240 */
 
 static const WORD k_bits[] = { 8, 16, 24, 32 };
@@ -54,8 +55,8 @@ TEST(wf_in_pcm_mapper_commdefault_44100)  { row(WF_IN, WAVE_MAPPER, WAVE_MAPPED_
 
 /* ---- off-grid values: channels, rates, bit depths ------------------------------------------------------------ */
 
-/* Plain PCM with more than 2 channels has no channel mask: 6 ch is WAVERR_BADFORMAT on the mapper and on the device
- * [VM]; the other counts are recorded. */
+/* Plain PCM with more than 2 channels has no channel mask: every count 3..255 is WAVERR_BADFORMAT on the mapper and
+ * on the device, with and without DIRECT [VM]. */
 static void channels(int dir, DWORD flags) {
     static const WORD ch[] = { 3, 4, 5, 6, 7, 8, 16, 255 };
     char lab[64];
@@ -64,7 +65,7 @@ static void channels(int dir, DWORD flags) {
         for (int j = 0; j < 2; j++) {
             wf_fmt f; wf_pcm(&f, WAVE_FORMAT_PCM_, ch[i], 48000, 16);
             sprintf(lab, "pcm 48000/16/%u fl0x%lx", ch[i], flags);
-            wf_cell(lab, dir, ids[j], &f, flags, ch[i] == 6 && !flags ? WAVERR_BADFORMAT : WF_NOTE);
+            wf_cell(lab, dir, ids[j], &f, flags, WAVERR_BADFORMAT);
         }
 }
 TEST(wf_out_pcm_channels_plain)  { channels(WF_OUT, 0); }
@@ -92,6 +93,8 @@ TEST(wf_in_pcm_6ch_id0)     { six(WF_IN, 0, 0); }
 TEST(wf_in_pcm_6ch_id0_direct)    { six(WF_IN, 0, WAVE_FORMAT_DIRECT); }
 TEST(wf_in_pcm_6ch_mapper_direct) { six(WF_IN, WAVE_MAPPER, WAVE_FORMAT_DIRECT); }
 
+/* The shared-mode engine resamples anything: every non-zero rate from 1 Hz to 1 MHz is accepted (0) on the mapper
+ * and on the device, DIRECT included [VM]. */
 static void rates(int dir, DWORD flags) {
     static const DWORD r[] = { 1, 100, 1000, 4000, 6000, 12000, 16000, 24000, 32000, 37800, 64000, 88200, 176400,
                                384000, 768000, 1000000 };
@@ -101,7 +104,7 @@ static void rates(int dir, DWORD flags) {
         for (int j = 0; j < 2; j++) {
             wf_fmt f; wf_pcm(&f, WAVE_FORMAT_PCM_, 2, r[i], 16);
             sprintf(lab, "pcm %lu/16/2 fl0x%lx", r[i], flags);
-            wf_cell(lab, dir, ids[j], &f, flags, WF_NOTE);
+            wf_cell(lab, dir, ids[j], &f, flags, MMSYSERR_NOERROR);
         }
 }
 TEST(wf_out_pcm_offgrid_rates_plain)  { rates(WF_OUT, 0); }
@@ -109,6 +112,8 @@ TEST(wf_out_pcm_offgrid_rates_direct) { rates(WF_OUT, WAVE_FORMAT_DIRECT); }
 TEST(wf_in_pcm_offgrid_rates_plain)   { rates(WF_IN, 0); }
 TEST(wf_in_pcm_offgrid_rates_direct)  { rates(WF_IN, WAVE_FORMAT_DIRECT); }
 
+/* Plain PCM depths that are not a whole number of bytes (1, 4, 7, 12, 20) -> 32; whole-byte depths beyond 32
+ * (40, 48, 64) -> 0 [VM]. */
 static void bitdepths(int dir, DWORD flags) {
     static const WORD b[] = { 1, 4, 7, 12, 20, 40, 48, 64 };
     char lab[64];
@@ -117,7 +122,7 @@ static void bitdepths(int dir, DWORD flags) {
         for (int j = 0; j < 2; j++) {
             wf_fmt f; wf_pcm(&f, WAVE_FORMAT_PCM_, 2, 44100, b[i]);
             sprintf(lab, "pcm 44100/%u/2 fl0x%lx", b[i], flags);
-            wf_cell(lab, dir, ids[j], &f, flags, WF_NOTE);
+            wf_cell(lab, dir, ids[j], &f, flags, b[i] % 8 ? WAVERR_BADFORMAT : MMSYSERR_NOERROR);
         }
 }
 TEST(wf_out_pcm_offgrid_bits_plain)  { bitdepths(WF_OUT, 0); }
@@ -127,6 +132,8 @@ TEST(wf_in_pcm_offgrid_bits_direct)  { bitdepths(WF_IN, WAVE_FORMAT_DIRECT); }
 
 /* ---- degenerate fields ------------------------------------------------------------------------------------------- */
 
+/* nChannels 0, nSamplesPerSec 0, wBitsPerSample 0 or 12: WAVERR_BADFORMAT on the query path, every target [VM].
+ * (A real open of the same formats on a device id is 11: open_query.c.) */
 static void degenerate(int dir, DWORD flags) {
     struct { WORD ch; DWORD rate; WORD bits; const char *n; } d[] = {
         { 0, 44100, 16, "ch0" }, { 2, 0, 16, "rate0" }, { 2, 44100, 0, "bits0" }, { 2, 44100, 12, "bits12" },
@@ -138,7 +145,7 @@ static void degenerate(int dir, DWORD flags) {
         for (int j = 0; j < 2; j++) {
             wf_fmt f; wf_pcm(&f, WAVE_FORMAT_PCM_, d[i].ch, d[i].rate, d[i].bits);
             sprintf(lab, "pcm %s fl0x%lx", d[i].n, flags);
-            wf_cell(lab, dir, ids[j], &f, flags, WF_NOTE);
+            wf_cell(lab, dir, ids[j], &f, flags, WAVERR_BADFORMAT);
         }
 }
 TEST(wf_out_pcm_degenerate_plain)  { degenerate(WF_OUT, 0); }
@@ -148,8 +155,8 @@ TEST(wf_in_pcm_degenerate_direct)  { degenerate(WF_IN, WAVE_FORMAT_DIRECT); }
 
 /* ---- nBlockAlign / nAvgBytesPerSec consistency --------------------------------------------------------------- */
 
-/* The query path does not validate nBlockAlign against nChannels * bits / 8: 3 for 2ch/16 is accepted [VM]. Other
- * inconsistent values are recorded. */
+/* The query path does not validate nBlockAlign against nChannels * bits / 8: 0, 1, 2, 3, 8 and 0xFFFF for 2ch/16
+ * are all accepted, with and without DIRECT [VM]. (The real open does validate it: open_query.c.) */
 static void blockalign(int dir, DWORD flags) {
     static const WORD ba[] = { 3, 0, 1, 2, 8, 0xFFFF };
     char lab[64];
@@ -159,7 +166,7 @@ static void blockalign(int dir, DWORD flags) {
             wf_fmt f; wf_pcm(&f, WAVE_FORMAT_PCM_, 2, 44100, 16);
             f.nBlockAlign = ba[i];
             sprintf(lab, "pcm 44100/16/2 blockalign%u fl0x%lx", ba[i], flags);
-            wf_cell(lab, dir, ids[j], &f, flags, ba[i] == 3 && !flags ? 0 : WF_NOTE);
+            wf_cell(lab, dir, ids[j], &f, flags, MMSYSERR_NOERROR);
         }
 }
 TEST(wf_out_pcm_blockalign_plain)  { blockalign(WF_OUT, 0); }
@@ -167,6 +174,8 @@ TEST(wf_out_pcm_blockalign_direct) { blockalign(WF_OUT, WAVE_FORMAT_DIRECT); }
 TEST(wf_in_pcm_blockalign_plain)   { blockalign(WF_IN, 0); }
 TEST(wf_in_pcm_blockalign_direct)  { blockalign(WF_IN, WAVE_FORMAT_DIRECT); }
 
+/* nAvgBytesPerSec is not checked for plain PCM, on the query path or on a real open (0, 1, too small, too large,
+ * 0xFFFFFFFF -> 0) [VM]. */
 static void avgbytes(int dir, DWORD flags) {
     static const DWORD ab[] = { 0, 1, 44100, 176401, 0xFFFFFFFF };
     char lab[64];
@@ -176,7 +185,7 @@ static void avgbytes(int dir, DWORD flags) {
             wf_fmt f; wf_pcm(&f, WAVE_FORMAT_PCM_, 2, 44100, 16);
             f.nAvgBytesPerSec = ab[i];
             sprintf(lab, "pcm 44100/16/2 avg%lu fl0x%lx", ab[i], flags);
-            wf_cell(lab, dir, ids[j], &f, flags, WF_NOTE);
+            wf_cell(lab, dir, ids[j], &f, flags, MMSYSERR_NOERROR);
         }
 }
 TEST(wf_out_pcm_avgbytes_plain)  { avgbytes(WF_OUT, 0); }

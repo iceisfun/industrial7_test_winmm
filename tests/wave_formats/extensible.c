@@ -1,7 +1,15 @@
 #include "wf.h"
 /* WAVE_FORMAT_EXTENSIBLE (0xFFFE) negotiation with WAVE_FORMAT_QUERY. One TEST per (direction, case); each case is
- * queried on four targets: mapper, mapper|DIRECT, device 0, device 0|DIRECT. Expectations per target: an MMRESULT,
- * or WF_NOTE (recorded only). With no device in the direction every cell is 2 (wf_cell's gate).
+ * queried on four targets: mapper, mapper|DIRECT, device 0, device 0|DIRECT. Every expectation is the verdict the
+ * Win10 VM gave (HDA duplex and HDA output-only guests, identical for waveOut and waveIn); with no device in the
+ * direction every cell is 2 (wf_cell's gate). Shape of the verdicts:
+ *   - the shared-mode engine converts: any PCM 8/16/24/32 container (valid bits <= container, > 0), float
+ *     16/32/64, any channel mask (0, mismatched, all bits), 1..8 channels, inconsistent nBlockAlign and (PCM)
+ *     nAvgBytesPerSec -> 0 on every target;
+ *   - cbSize < 22: the endpoint says 11 (MMSYSERR_INVALPARAM); the mapper without DIRECT then tries ACM and reports
+ *     32, with DIRECT it passes the device's 11 through;
+ *   - nChannels 0, nSamplesPerSec 0, wValidBitsPerSample 0 or > container, float with nAvgBytesPerSec 0, and every
+ *     SubFormat other than PCM / IEEE_FLOAT (a-law, mu-law, ADPCM, DRM, unknown GUID) -> 32.
  * VM_TIMEOUT: 240 */
 
 enum { TW_NONE, TW_BA_PLUS1, TW_BA_ZERO, TW_AVG_ZERO, TW_AVG_PLUS1 };
@@ -9,55 +17,56 @@ enum { TW_NONE, TW_BA_PLUS1, TW_BA_ZERO, TW_AVG_ZERO, TW_AVG_PLUS1 };
 #define N WF_NOTE
 #define Z MMSYSERR_NOERROR
 #define B WAVERR_BADFORMAT
+#define I MMSYSERR_INVALPARAM
 /*     name                  ch rate   bits valid mask         sub           cb  tweak        mapper mapD id0 id0D */
 #define EXT_CASES(X) \
-    X(pcm16_stereo_44k,       2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, N, Z, N) \
-    X(pcm16_stereo_48k,       2, 48000, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, N, Z, N) \
-    X(pcm16_stereo_22k,       2, 22050, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, N, N, N) \
-    X(pcm16_mono_44k,         1, 44100, 16, 16, 0x4,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm8_stereo_44k,        2, 44100,  8,  8, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm8_mono_8k,           1,  8000,  8,  8, 0x4,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm24_stereo_48k,       2, 48000, 24, 24, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm32_stereo_48k,       2, 48000, 32, 32, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm24in32_stereo_48k,   2, 48000, 32, 24, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm20in24_stereo_48k,   2, 48000, 24, 20, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm12in16_stereo_44k,   2, 44100, 16, 12, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_valid0,           2, 44100, 16,  0, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_valid24,          2, 44100, 16, 24, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_mask0,            2, 44100, 16, 16, 0x0,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_mask7,            2, 44100, 16, 16, 0x7,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_mask_fl_only,     2, 44100, 16, 16, 0x1,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_mask_all,         2, 44100, 16, 16, 0xFFFFFFFF, WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_quad,             4, 48000, 16, 16, 0x33,       WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_5point1,          6, 48000, 16, 16, 0x3F,       WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_5point1_side,     6, 48000, 16, 16, 0x60F,      WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_7point1,          8, 48000, 16, 16, 0x63F,      WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_ch0,              0, 48000, 16, 16, 0x0,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(pcm16_rate0,            2,     0, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      N, N, N, N) \
-    X(float32_stereo_48k,     2, 48000, 32, 32, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, N, N, N) \
-    X(float32_stereo_44k,     2, 44100, 32, 32, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, N, N, N) \
-    X(float32_mono_48k,       1, 48000, 32, 32, 0x4,        WF_SUB_FLOAT, 22, TW_NONE,      N, N, N, N) \
-    X(float32_5point1,        6, 48000, 32, 32, 0x3F,       WF_SUB_FLOAT, 22, TW_NONE,      N, N, N, N) \
-    X(float64_stereo_48k,     2, 48000, 64, 64, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      N, N, N, N) \
-    X(float32_valid24,        2, 48000, 32, 24, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      N, N, N, N) \
-    X(float16_stereo,         2, 48000, 16, 16, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      N, N, N, N) \
-    X(cb0,                    2, 44100, 16, 16, 0x3,        WF_SUB_PCM,    0, TW_NONE,      N, N, N, N) \
-    X(cb10,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   10, TW_NONE,      N, N, N, N) \
-    X(cb21,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   21, TW_NONE,      N, N, N, N) \
-    X(cb23,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   23, TW_NONE,      N, N, N, N) \
-    X(cb40,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   40, TW_NONE,      N, N, N, N) \
-    X(float_cb21,             2, 48000, 32, 32, 0x3,        WF_SUB_FLOAT, 21, TW_NONE,      N, N, N, N) \
+    X(pcm16_stereo_44k,       2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_stereo_48k,       2, 48000, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_stereo_22k,       2, 22050, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_mono_44k,         1, 44100, 16, 16, 0x4,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm8_stereo_44k,        2, 44100,  8,  8, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm8_mono_8k,           1,  8000,  8,  8, 0x4,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm24_stereo_48k,       2, 48000, 24, 24, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm32_stereo_48k,       2, 48000, 32, 32, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm24in32_stereo_48k,   2, 48000, 32, 24, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm20in24_stereo_48k,   2, 48000, 24, 20, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm12in16_stereo_44k,   2, 44100, 16, 12, 0x3,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_valid0,           2, 44100, 16,  0, 0x3,        WF_SUB_PCM,   22, TW_NONE,      B, B, B, B) \
+    X(pcm16_valid24,          2, 44100, 16, 24, 0x3,        WF_SUB_PCM,   22, TW_NONE,      B, B, B, B) \
+    X(pcm16_mask0,            2, 44100, 16, 16, 0x0,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_mask7,            2, 44100, 16, 16, 0x7,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_mask_fl_only,     2, 44100, 16, 16, 0x1,        WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_mask_all,         2, 44100, 16, 16, 0xFFFFFFFF, WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_quad,             4, 48000, 16, 16, 0x33,       WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_5point1,          6, 48000, 16, 16, 0x3F,       WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_5point1_side,     6, 48000, 16, 16, 0x60F,      WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_7point1,          8, 48000, 16, 16, 0x63F,      WF_SUB_PCM,   22, TW_NONE,      Z, Z, Z, Z) \
+    X(pcm16_ch0,              0, 48000, 16, 16, 0x0,        WF_SUB_PCM,   22, TW_NONE,      B, B, B, B) \
+    X(pcm16_rate0,            2,     0, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_NONE,      B, B, B, B) \
+    X(float32_stereo_48k,     2, 48000, 32, 32, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(float32_stereo_44k,     2, 44100, 32, 32, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(float32_mono_48k,       1, 48000, 32, 32, 0x4,        WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(float32_5point1,        6, 48000, 32, 32, 0x3F,       WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(float64_stereo_48k,     2, 48000, 64, 64, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(float32_valid24,        2, 48000, 32, 24, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(float16_stereo,         2, 48000, 16, 16, 0x3,        WF_SUB_FLOAT, 22, TW_NONE,      Z, Z, Z, Z) \
+    X(cb0,                    2, 44100, 16, 16, 0x3,        WF_SUB_PCM,    0, TW_NONE,      B, I, I, I) \
+    X(cb10,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   10, TW_NONE,      B, I, I, I) \
+    X(cb21,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   21, TW_NONE,      B, I, I, I) \
+    X(cb23,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   23, TW_NONE,      Z, Z, Z, Z) \
+    X(cb40,                   2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   40, TW_NONE,      Z, Z, Z, Z) \
+    X(float_cb21,             2, 48000, 32, 32, 0x3,        WF_SUB_FLOAT, 21, TW_NONE,      B, I, I, I) \
     X(sub_bogus,              2, 44100, 16, 16, 0x3,        WF_SUB_BOGUS, 22, TW_NONE,      B, B, B, B) \
     X(sub_bogus_float,        2, 48000, 32, 32, 0x3,        WF_SUB_BOGUS, 22, TW_NONE,      B, B, B, B) \
-    X(sub_alaw,               1,  8000,  8,  8, 0x4,        WF_SUB_ALAW,  22, TW_NONE,      N, N, N, N) \
-    X(sub_mulaw,              1,  8000,  8,  8, 0x4,        WF_SUB_MULAW, 22, TW_NONE,      N, N, N, N) \
-    X(sub_adpcm,              1, 22050,  4,  4, 0x4,        WF_SUB_ADPCM, 22, TW_NONE,      N, N, N, N) \
-    X(sub_drm,                2, 44100, 16, 16, 0x3,        WF_SUB_DRM,   22, TW_NONE,      N, N, N, N) \
-    X(blockalign_plus1,       2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_BA_PLUS1,  N, N, N, N) \
-    X(blockalign_zero,        2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_BA_ZERO,   N, N, N, N) \
-    X(avgbytes_zero,          2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_AVG_ZERO,  N, N, N, N) \
-    X(avgbytes_plus1,         2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_AVG_PLUS1, N, N, N, N) \
-    X(float_avgbytes_zero,    2, 48000, 32, 32, 0x3,        WF_SUB_FLOAT, 22, TW_AVG_ZERO,  N, N, N, N)
+    X(sub_alaw,               1,  8000,  8,  8, 0x4,        WF_SUB_ALAW,  22, TW_NONE,      B, B, B, B) \
+    X(sub_mulaw,              1,  8000,  8,  8, 0x4,        WF_SUB_MULAW, 22, TW_NONE,      B, B, B, B) \
+    X(sub_adpcm,              1, 22050,  4,  4, 0x4,        WF_SUB_ADPCM, 22, TW_NONE,      B, B, B, B) \
+    X(sub_drm,                2, 44100, 16, 16, 0x3,        WF_SUB_DRM,   22, TW_NONE,      B, B, B, B) \
+    X(blockalign_plus1,       2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_BA_PLUS1,  Z, Z, Z, Z) \
+    X(blockalign_zero,        2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_BA_ZERO,   Z, Z, Z, Z) \
+    X(avgbytes_zero,          2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_AVG_ZERO,  Z, Z, Z, Z) \
+    X(avgbytes_plus1,         2, 44100, 16, 16, 0x3,        WF_SUB_PCM,   22, TW_AVG_PLUS1, Z, Z, Z, Z) \
+    X(float_avgbytes_zero,    2, 48000, 32, 32, 0x3,        WF_SUB_FLOAT, 22, TW_AVG_ZERO,  B, B, B, B)
 
 typedef struct {
     const char *name; WORD ch; DWORD rate; WORD bits, valid; DWORD mask; const GUID *sub; WORD cb; int tweak; int exp[4];
@@ -128,7 +137,7 @@ TEST(wf_in_ext_matches_plain_id0)     { REQUIRE(U(waveInOpen)); ext_vs_plain(WF_
 static void mixfmt(int dir) {
     wf_ext e; wf_extfmt(&e, 2, 48000, 32, 32, 3, &WF_SUB_FLOAT);
     wf_cell("ext mixformat", dir, WAVE_MAPPER, &e, 0, 0);
-    wf_cell("ext mixformat", dir, 0, &e, 0, WF_NOTE);
+    wf_cell("ext mixformat", dir, 0, &e, 0, 0);
     wf_cell("ext mixformat", dir, 0xFFFF, &e, 0, 0);
 }
 TEST(wf_out_ext_mixformat) { REQUIRE(U(waveOutOpen)); mixfmt(WF_OUT); }

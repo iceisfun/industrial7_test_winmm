@@ -297,13 +297,10 @@ static void mapped_id(int dir) {
     UINT n = wf_ndev(dir);
     wf_cell("pcm16/2/44100 MAPPED", dir, 0, &f, WAVE_MAPPED, 0);
     wf_cell("pcm16/2/44100 MAPPED|DIRECT", dir, 0, &f, WAVE_MAPPED | WAVE_FORMAT_DIRECT, 0);
-    /* Out-of-range id with WAVE_MAPPED: the driver lookup is for the mapper (-1), the bad id is handed to it. */
-    MMRESULT r = wf_query(dir, n, &f, WAVE_MAPPED);
-    if (n == 0) EXPECT_EQ(r, MMSYSERR_BADDEVICEID);
-    else t_note("CELL query %s MAPPED id n=%u r=%u", wf_dirname(dir), n, r);
-    r = wf_query(dir, n + 50, &f, WAVE_MAPPED);
-    if (n == 0) EXPECT_EQ(r, MMSYSERR_BADDEVICEID);
-    else t_note("CELL query %s MAPPED id n+50 r=%u", wf_dirname(dir), r);
+    /* Out-of-range id with WAVE_MAPPED: winmm resolves the mapper driver (-1) and hands it the bad id; the mapper
+     * answers 2 [VM]. With no device the count gate answers 2 first. */
+    EXPECT_EQ(wf_query(dir, n, &f, WAVE_MAPPED), MMSYSERR_BADDEVICEID);
+    EXPECT_EQ(wf_query(dir, n + 50, &f, WAVE_MAPPED), MMSYSERR_BADDEVICEID);
 }
 TEST(wf_out_query_mapped_specific_id) { REQ_OPEN(); mapped_id(WF_OUT); }
 TEST(wf_in_query_mapped_specific_id)  { REQ_OPEN(); mapped_id(WF_IN); }
@@ -368,7 +365,7 @@ static void query_while_open(int dir) {
 TEST(wf_out_query_while_stream_open) { REQ_OPEN(); query_while_open(WF_OUT); }
 TEST(wf_in_query_while_stream_open)  { REQ_OPEN(); query_while_open(WF_IN); }
 
-/* cbSize is ignored for WAVE_FORMAT_PCM (no extra bytes are read); a large cbSize is not an error. */
+/* cbSize is ignored for WAVE_FORMAT_PCM: 1, 2, 22 and 100 are all accepted, DIRECT included [VM]. */
 static void pcm_cbsize(int dir) {
     wf_fmt f; pcm16(&f);
     static const WORD cb[] = { 1, 2, 22, 100 };
@@ -376,9 +373,9 @@ static void pcm_cbsize(int dir) {
     for (unsigned i = 0; i < sizeof cb / sizeof *cb; i++) {
         f.cbSize = cb[i];
         sprintf(lab, "pcm16/2/44100 cbSize%u", cb[i]);
-        wf_cell(lab, dir, WAVE_MAPPER, &f, 0, WF_NOTE);
-        wf_cell(lab, dir, 0, &f, 0, WF_NOTE);
-        wf_cell(lab, dir, 0, &f, WAVE_FORMAT_DIRECT, WF_NOTE);
+        wf_cell(lab, dir, WAVE_MAPPER, &f, 0, 0);
+        wf_cell(lab, dir, 0, &f, 0, 0);
+        wf_cell(lab, dir, 0, &f, WAVE_FORMAT_DIRECT, 0);
     }
 }
 TEST(wf_out_query_pcm_cbsize_ignored) { REQ_OPEN(); pcm_cbsize(WF_OUT); }
