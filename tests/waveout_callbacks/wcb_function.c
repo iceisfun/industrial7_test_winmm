@@ -544,3 +544,42 @@ TEST(wcb_fn_null_pointer_target) {
         EXPECT_EQ(U(waveOutClose)(h), 0);
     }
 }
+
+/* All WOM_DONE of one handle arrive on one thread (the driver's completion thread), never the caller's. */
+TEST(wcb_fn_done_single_worker_thread) {
+    NEED_OUT();
+    WAVEFORMATEX f; wcb_fmt_default(&f);
+    UINT ids[6]; int k = wcb_out_ids(ids, 6);
+    for (int x = 0; x < k; x++) {
+        fnctx c;
+        if (fn_open(&c, ids[x], &f, 0x7500 + x, 0)) { fn_done(&c); CHECK(0); continue; }
+        WAVEHDR hd[5]; char *d[5]; DWORD len;
+        for (int i = 0; i < 5; i++) { d[i] = wcb_silence(&f, 20, &len); wcb_hdr(&hd[i], d[i], len); U(waveOutPrepareHeader)(c.h, &hd[i], sizeof hd[i]); U(waveOutWrite)(c.h, &hd[i], sizeof hd[i]); }
+        CHECK(wcb_wait_total(&c.L, 6, WCB_WAIT_MS));
+        DWORD t = 0; int same = 1, n = c.L.total < WCB_MAXREC ? c.L.total : WCB_MAXREC;
+        for (int i = 0; i < n; i++) if (c.L.r[i].msg == WOM_DONE) { if (!t) t = c.L.r[i].tid; else if (c.L.r[i].tid != t) same = 0; }
+        CHECKF(same, "%s: WOM_DONE on more than one thread", wcb_idname(ids[x]));
+        CHECK(t != 0 && t != GetCurrentThreadId());
+        U(waveOutReset)(c.h);
+        for (int i = 0; i < 5; i++) { U(waveOutUnprepareHeader)(c.h, &hd[i], sizeof hd[i]); HeapFree(GetProcessHeap(), 0, d[i]); }
+        EXPECT_EQ(U(waveOutClose)(c.h), 0);
+        fn_done(&c);
+    }
+}
+
+/* WOM_DONE from waveOutReset: record which thread delivers it (the resetting caller or the worker). */
+TEST(wcb_fn_reset_done_thread) {
+    NEED_OUT();
+    WAVEFORMATEX f; wcb_fmt_default(&f);
+    fnctx c;
+    if (fn_open(&c, WAVE_MAPPER, &f, 0x7600, 0)) { fn_done(&c); CHECK(0); return; }
+    WAVEHDR wh; DWORD len; char *d = wcb_silence(&f, 1000, &len); wcb_hdr(&wh, d, len);
+    U(waveOutPrepareHeader)(c.h, &wh, sizeof wh); U(waveOutWrite)(c.h, &wh, sizeof wh);
+    EXPECT_EQ(U(waveOutReset)(c.h), 0);
+    CHECK(wcb_wait_total(&c.L, 2, WCB_WAIT_MS));
+    if (c.L.total >= 2) t_note("WOM_DONE from waveOutReset delivered on the %s thread", c.L.r[1].tid == GetCurrentThreadId() ? "caller" : "worker");
+    U(waveOutUnprepareHeader)(c.h, &wh, sizeof wh);
+    EXPECT_EQ(U(waveOutClose)(c.h), 0);
+    HeapFree(GetProcessHeap(), 0, d);
+    fn_done(&c);
+}

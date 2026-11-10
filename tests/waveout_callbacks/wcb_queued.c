@@ -526,3 +526,49 @@ TEST(wcb_thr_no_queue_thread_and_zero_tid) {
     EXPECT_EQ(WaitForSingleObject(th, WCB_WAIT_MS), WAIT_OBJECT_0);
     CloseHandle(th); CloseHandle(q);
 }
+
+/* Dispatched to the window procedure: the procedure sees uMsg, wParam = HWAVEOUT, lParam = LPWAVEHDR. */
+static wcb_log *g_wp_log;
+static LRESULT CALLBACK rec_wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
+    if (m >= MM_WOM_OPEN && m <= MM_WIM_DATA && g_wp_log) {
+        LONG i = g_wp_log->total;
+        if (i < WCB_MAXREC) { g_wp_log->r[i].msg = m; g_wp_log->r[i].h = wp; g_wp_log->r[i].p1 = lp; g_wp_log->r[i].tid = GetCurrentThreadId(); }
+        g_wp_log->total = i + 1;
+        return 0;
+    }
+    return DefWindowProcA(w, m, wp, lp);
+}
+
+TEST(wcb_win_wndproc_receives_params) {
+    NEED_OUT();
+    WAVEFORMATEX f; wcb_fmt_default(&f);
+    WNDCLASSA wc; memset(&wc, 0, sizeof wc);
+    wc.lpfnWndProc = rec_wndproc; wc.hInstance = GetModuleHandleA(NULL); wc.lpszClassName = "winmmt_wcb_rec";
+    RegisterClassA(&wc);
+    HWND w = CreateWindowExA(0, "winmmt_wcb_rec", "", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, GetModuleHandleA(NULL), NULL);
+    if (!w) { CHECK(0); return; }
+    wcb_log L; memset(&L, 0, sizeof L); g_wp_log = &L;
+    HWAVEOUT h = NULL;
+    if (U(waveOutOpen)(&h, WAVE_MAPPER, &f, (DWORD_PTR)w, 0, CALLBACK_WINDOW)) { CHECK(0); g_wp_log = NULL; DestroyWindow(w); return; }
+    WAVEHDR hd[2]; char *d[2]; DWORD len;
+    for (int i = 0; i < 2; i++) { d[i] = wcb_silence(&f, 20, &len); wcb_hdr(&hd[i], d[i], len); U(waveOutPrepareHeader)(h, &hd[i], sizeof hd[i]); U(waveOutWrite)(h, &hd[i], sizeof hd[i]); }
+    DWORD t0 = GetTickCount();
+    while (L.total < 3 && GetTickCount() - t0 < WCB_WAIT_MS) {
+        MSG m; while (PeekMessageA(&m, w, 0, 0, PM_REMOVE)) DispatchMessageA(&m);
+        MsgWaitForMultipleObjects(0, NULL, FALSE, 20, QS_ALLINPUT);
+    }
+    for (int i = 0; i < 2; i++) { U(waveOutUnprepareHeader)(h, &hd[i], sizeof hd[i]); HeapFree(GetProcessHeap(), 0, d[i]); }
+    EXPECT_EQ(U(waveOutClose)(h), 0);
+    MSG m; while (PeekMessageA(&m, w, 0, 0, PM_REMOVE)) DispatchMessageA(&m);
+    EXPECT_EQ(L.total, 4);
+    if (L.total == 4) {
+        EXPECT_EQ(L.r[0].msg, WOM_OPEN); EXPECT_EQ(L.r[0].h, (DWORD_PTR)h); EXPECT_EQ(L.r[0].p1, 0);
+        EXPECT_EQ(L.r[1].msg, WOM_DONE); EXPECT_EQ(L.r[1].p1, (DWORD_PTR)&hd[0]);
+        EXPECT_EQ(L.r[2].msg, WOM_DONE); EXPECT_EQ(L.r[2].p1, (DWORD_PTR)&hd[1]);
+        EXPECT_EQ(L.r[3].msg, WOM_CLOSE); EXPECT_EQ(L.r[3].h, (DWORD_PTR)h);
+        for (int i = 0; i < 4; i++) EXPECT_EQ(L.r[i].tid, GetCurrentThreadId());
+    }
+    g_wp_log = NULL;
+    DestroyWindow(w);
+    UnregisterClassA("winmmt_wcb_rec", GetModuleHandleA(NULL));
+}
