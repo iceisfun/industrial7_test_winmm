@@ -372,8 +372,9 @@ static void odd_len_case(DWORD extra) {
     if (wp_wait_done(&d, &wh, 100 + WP_DONE_SLACK)) {
         DWORD b = wp_bytes(d.h), s = wp_samples(d.h);
         t_note("buffer of %lu bytes (+%lu): bytes %lu samples %lu", wh.dwBufferLength, extra, b, s);
-        CHECKF(s == FR100 || s == FR100 + 1, "samples %lu", s);
-        CHECKF(b >= FR100 * WP_ALIGN && b <= wh.dwBufferLength + WP_ALIGN, "bytes %lu", b);
+        /* VM: the trailing partial frame is dropped from the count */
+        EXPECT_EQ(s, FR100);
+        EXPECT_EQ(b, FR100 * WP_ALIGN);
     } else CHECKF(0, "did not complete");
     U(waveOutReset)(d.h);
     EXPECT_EQ(wp_unprep(&d, &wh), MMSYSERR_NOERROR);

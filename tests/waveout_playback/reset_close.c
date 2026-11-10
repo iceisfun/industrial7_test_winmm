@@ -74,6 +74,7 @@ TEST(wp_reset_done_callbacks_in_order) {
         EXPECT_EQ(U(waveOutReset)(d.h), MMSYSERR_NOERROR);
         LONG n = g_n;
         t_note("callbacks seen when Reset returned: %ld", n);
+        EXPECT_EQ(n, 5);   /* VM: every WOM_DONE is delivered before waveOutReset returns */
         DWORD t0 = GetTickCount();
         while (g_n < 5 && GetTickCount() - t0 < 1000) Sleep(5);
         EXPECT_EQ(g_n, 5);
