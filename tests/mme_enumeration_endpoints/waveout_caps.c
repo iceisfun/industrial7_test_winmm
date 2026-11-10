@@ -346,7 +346,7 @@ static void w_size_record(UINT_PTR id, const char *what) {
     for (size_t k = 0; k < sizeof w_cbs / sizeof w_cbs[0]; k++) {
         MMRESULT r; unsigned char b[300]; ee_fill(b, sizeof b, 0xB4);
         r = U(waveOutGetDevCapsW)(id, (LPWAVEOUTCAPSW)b, w_cbs[k]);
-        rl += snprintf(rec + rl, sizeof rec - rl, " %u:%u/%zu", w_cbs[k], r, written_len(id, w_cbs[k]));
+        rl += snprintf(rec + rl, sizeof rec - rl, " %u:%u/%u", w_cbs[k], r, (unsigned)written_len(id, w_cbs[k]));
     }
     t_note("%s W sizes (cb:ret/written):%s", what, rec);
 }

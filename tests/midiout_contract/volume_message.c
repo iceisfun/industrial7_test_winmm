@@ -232,6 +232,7 @@ TEST(midiout_contract_message_funcinstid_id0) {
     EXPECT_EQ(MSG(0, DRV_QUERYFUNCTIONINSTANCEID, NULL, sizeof(buf)), MMSYSERR_INVALPARAM);
 }
 
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_contract_message_devinterface_size_id0) {
     REQUIRE(U(midiOutMessage));
     DWORD sz = 0xA5A5A5A5;
@@ -267,6 +268,7 @@ TEST(midiout_contract_message_mapper_queries) {
 }
 
 /* DRVM_MAPPER_PREFERRED_GET: answered for the mapper (preferred id, flags 0), rejected for a device */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_contract_message_preferred_get) {
     REQUIRE(U(midiOutMessage));
     DWORD id = 0xA5A5A5A5, fl = 0xA5A5A5A5;
@@ -284,6 +286,7 @@ TEST(midiout_contract_message_preferred_get) {
 }
 
 /* reserved DRV_ query range 0x801..0x804 and 0x806: NOTSUPPORTED inside winmm */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_contract_message_reserved_queries_8) {
     REQUIRE(U(midiOutMessage));
     static const UINT msgs[] = { 0x801, 0x802, 0x803, 0x804, 0x806 };
@@ -294,11 +297,13 @@ TEST(midiout_contract_message_reserved_queries_8) {
 }
 
 /* MODM_* through the message entry reach the driver: record the synth's answers */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_contract_message_driver_messages_id0) {
     REQUIRE(U(midiOutMessage)); REQUIRE(U(midiOutGetDevCapsW));
     DWORD n = 0xA5A5A5A5;
     MMRESULT r = MSG(0, MODM_GETNUMDEVS, 0, 0);
     t_note("synth MODM_GETNUMDEVS -> %u", r);
+    /* UNVERIFIED: pin after the first Win10 run */
     EXPECT_EQ(r, 1);
     MIDIOUTCAPSW c, ref; memset(&c, 0, sizeof(c)); memset(&ref, 0, sizeof(ref));
     r = MSG(0, MODM_GETDEVCAPS, &c, sizeof(c));

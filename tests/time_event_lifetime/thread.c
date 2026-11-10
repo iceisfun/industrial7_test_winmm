@@ -31,11 +31,10 @@ static void CALLBACK th_ser_cb(UINT id, UINT msg, DWORD_PTR user, DWORD_PTR d1, 
 static void th_ser_case(int n, const UINT *delays, UINT flags, DWORD work_ms, DWORD run_ms, LONG min_calls) {
     th_ser s; memset(&s, 0, sizeof s); s.work_ms = work_ms;
     UINT ids[16] = {0};
-    for (int i = 0; i < n; i++) { ids[i] = TSE(delays[i], 1, th_ser_cb, (DWORD_PTR)&s, flags); CHECKF(ids[i] != 0, "event %d", i); }
+    for (int i = 0; i < n; i++) { ids[i] = TSE(delays[i], 1, th_ser_cb, (DWORD_PTR)&s, flags | TIME_KILL_SYNCHRONOUS);   /* s is on the stack: kills must wait */ CHECKF(ids[i] != 0, "event %d", i); }
     CHECK(tl_wait_ge(&s.calls, min_calls, run_ms + 3000));
     Sleep(run_ms);
     for (int i = 0; i < n; i++) if (ids[i]) EXPECT_EQ(TKE(ids[i]), 0);
-    tl_wait_ge(&s.inside, 0, 100);
     Sleep(work_ms + 30);
     EXPECT_EQ(s.max_inside, 1);
     EXPECT_EQ(s.tid_mismatch, 0);

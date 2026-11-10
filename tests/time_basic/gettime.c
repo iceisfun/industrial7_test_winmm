@@ -133,17 +133,21 @@ TEST(time_basic_gettime_independent_of_system_clock) {
     ULONGLONG w = (((ULONGLONG)f1.dwHighDateTime << 32 | f1.dwLowDateTime) - ((ULONGLONG)f0.dwHighDateTime << 32 | f0.dwLowDateTime)) / 10000;
     t_note("wall +%llu ms, timeGetTime +%ld ms", w, tb_diff(t1, t0));
     CHECK(tb_diff(t1, t0) >= 14);
+    /* both clocks advance together (loose: a wall-clock step within 30 ms is unlikely) */
+    CHECKF((LONGLONG)w - tb_diff(t1, t0) < 250 && (LONGLONG)tb_diff(t1, t0) - (LONGLONG)w < 250, "wall +%llu ms vs timeGetTime +%ld ms", w, tb_diff(t1, t0));
 }
 
 TEST(time_basic_gettime_granularity_note) {
     REQUIRE(U(timeGetTime));
     DWORD prev = U(timeGetTime)(), start = prev; LONG minstep = 0x7FFFFFFF, maxstep = 0; int steps = 0;
-    while (tb_diff(U(timeGetTime)(), start) < 100) {
+    DWORD gtc0 = GetTickCount();
+    while (tb_diff(U(timeGetTime)(), start) < 100 && GetTickCount() - gtc0 < 2000) {
         DWORD t = U(timeGetTime)();
         LONG d = tb_diff(t, prev);
         if (d > 0) { steps++; if (d < minstep) minstep = d; if (d > maxstep) maxstep = d; }
         prev = t;
     }
+    CHECKF(tb_diff(U(timeGetTime)(), start) >= 100, "timeGetTime did not advance 100 ms in 2 s");
     t_note("default resolution: %d steps in 100 ms, step min=%ld max=%ld, NtQueryTimerResolution cur=%lu",
            steps, minstep, maxstep, tb_cur_res());
     CHECK(steps >= 1);
@@ -155,7 +159,8 @@ TEST(time_basic_gettime_granularity_with_period1) {
     EXPECT_EQ(tb_begin(pmin), 0);
     Sleep(20);
     DWORD prev = U(timeGetTime)(), start = prev; LONG maxstep = 0; int steps = 0, dec = 0;
-    while (tb_diff(U(timeGetTime)(), start) < 100) {
+    DWORD gtc0 = GetTickCount();
+    while (tb_diff(U(timeGetTime)(), start) < 100 && GetTickCount() - gtc0 < 2000) {
         DWORD t = U(timeGetTime)();
         LONG d = tb_diff(t, prev);
         if (d < 0) dec++;
@@ -163,6 +168,7 @@ TEST(time_basic_gettime_granularity_with_period1) {
         prev = t;
     }
     ULONG held = tb_cur_res();
+    CHECKF(tb_diff(U(timeGetTime)(), start) >= 100, "timeGetTime did not advance 100 ms in 2 s");
     EXPECT_EQ(tb_end(pmin), 0);
     EXPECT_EQ(dec, 0);
     t_note("after timeBeginPeriod(%u): %d steps in 100 ms, largest step %ld, cur res %lu", pmin, steps, maxstep, held);

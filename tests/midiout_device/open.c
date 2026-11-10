@@ -64,6 +64,7 @@ TEST(midiout_device_getid_stable) {
 }
 
 /* every flag value the open masks let through opens the synth (0x4, 0x8, 0x4000 are outside 0x3FF3/0xBFF3) */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_device_open_tolerated_flag_bits) {
     MOD_NEED_LIVE();
     static const DWORD extra[] = { 0, 0x4, 0x8, 0xC, 0x4000, 0x400C };
@@ -205,7 +206,15 @@ TEST(midiout_device_open_race_one_winner) {
             t[i].id = (i & 1) ? MIDI_MAPPER : 0; t[i].go = go; t[i].r = 0xFFFF; t[i].h = NULL;
             th[i] = CreateThread(NULL, 0, race_thread, &t[i], 0, NULL);
         }
+        int made = 1;
+        for (int i = 0; i < 4; i++) if (!th[i]) made = 0;
         SetEvent(go);
+        if (!made) {
+            for (int i = 0; i < 4; i++) if (th[i]) { WaitForSingleObject(th[i], 5000); CloseHandle(th[i]); }
+            CloseHandle(go);
+            CHECKF(0, "round %d: CreateThread failed", round);
+            return;
+        }
         DWORD w = WaitForMultipleObjects(4, th, TRUE, 5000);
         CHECKF(w != WAIT_TIMEOUT, "round %d: threads did not finish", round);
         int ok = 0, alloc = 0;

@@ -137,11 +137,13 @@ TEST(te_ev_set_handle_not_duplicated) {
        (no extra handle kept by winmm, decomp stores fptc as-is) */
     HANDLE ev = CreateEventA(NULL, TRUE, FALSE, NULL);
     DWORD before = 0, during = 0;
+    te_free_slots();   /* make sure the worker thread (and its handles) exist before sampling */
     GetProcessHandleCount(GetCurrentProcess(), &before);
     UINT id = te_set(TE_LONG, TE_COARSE, (LPTIMECALLBACK)ev, 0, TIME_ONESHOT | TIME_CALLBACK_EVENT_SET);
     CHECK(id != 0);
     GetProcessHandleCount(GetCurrentProcess(), &during);
     t_note("handle count before %lu during %lu", before, during);
+    CHECKF(during <= before, "handle count grew %lu -> %lu (winmm must not duplicate the event handle)", before, during);
     if (id) EXPECT_EQ(te_kill(id), 0);
     CloseHandle(ev);
 }

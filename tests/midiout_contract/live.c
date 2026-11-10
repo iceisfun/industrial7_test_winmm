@@ -38,6 +38,7 @@ TEST(midiout_contract_live_open_close_cycles) {
 }
 
 /* the synth is single-open per process: a second open of id 0, or of the mapper, is ALLOCATED [VM] */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_contract_live_single_open_allocated) {
     REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
     HMIDIOUT h = moc_open_id(0);
@@ -182,6 +183,7 @@ TEST(midiout_contract_live_callback_thread) {
 }
 
 /* CALLBACK_WINDOW with dwCallback 0 opens with no notification target */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_contract_live_window_null_target) {
     REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
     if (!moc_can_open()) { t_skip("no wave device"); return; }

@@ -282,7 +282,7 @@ PTEST(missing_relative_async_posted_sync_fails) {
 PTEST(missing_rooted_async_posts) {
     REQUIRE(ps_have_all()); ps_quiesce();
     static const WCHAR *names[] = { L"C:\\i7ps_nodir\\x.wav", L"C:\\i7ps_nodir\\x", L"C:\\i7ps_nofile.wav",
-        L"C:\\i7ps_nodir\\a\\b\\c\\d.wav", L"Z:\\i7ps\\x.wav", L"\\\\?\\C:\\i7ps_nodir\\x.wav", L"c:/i7ps_nodir/x.wav" };
+        L"C:\\i7ps_nodir\\a\\b\\c\\d.wav", L"C:\\i7ps_nodir2\\x.wav", L"\\\\?\\C:\\i7ps_nodir\\x.wav", L"c:/i7ps_nodir/x.wav" };
     for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
         for (int ep = 0; ep < EP_N; ep++) {
             BOOL a = ps_call(ep, PSZ_WIDE, names[i], NULL, SND_ASYNC | SND_FILENAME | SND_NODEFAULT);

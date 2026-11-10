@@ -186,6 +186,7 @@ TEST(wcm_vol_zero_devices_open_fails)
 
 /* ---------------------------------------------------------------- device ids */
 
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(wcm_vol_get_device_ids)
 {
     REQUIRE(U(waveOutGetVolume));
@@ -277,7 +278,8 @@ TEST(wcm_vol_get_mapper_handle)
     DWORD v = WCM_SENT;
     EXPECT_EQ(U(waveOutGetVolume)(h, &v), WCM_OK);
     t_note("GETVOL mapper handle vol=0x%08lx", (unsigned long)v);
-    EXPECT_EQ(v, 0xFFFFFFFFu);
+    /* live session volume on Win10: no fixed value; write-back round trip only */
+    EXPECT_EQ(U(waveOutSetVolume)(h, v), 0);
     wcm_close_out(h);
 }
 

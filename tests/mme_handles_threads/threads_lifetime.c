@@ -423,7 +423,7 @@ CHILD(numdevs_race) {
         if (!t[i]) return 2; }
     Sleep(50);
     SetEvent(go);
-    for (int i = 0; i < NTHREADS; i++) { if (WaitForSingleObject(t[i], 150000) != WAIT_OBJECT_0) return 3; CloseHandle(t[i]); }
+    for (int i = 0; i < NTHREADS; i++) { if (WaitForSingleObject(t[i], 50000) != WAIT_OBJECT_0) return 3; CloseHandle(t[i]); }
     for (int i = 1; i < NTHREADS; i++) if (r[i].n != r[0].n) {
         printf("race %s: thread0=%u thread%d=%u\n", argv[1], r[0].n, i, r[i].n); return 1;
     }
@@ -439,7 +439,7 @@ TEST(mh_race_first_numdevs_child) {
         { "waveout", c->wo }, { "wavein", c->wi }, { "midiout", c->mo }, { "mixer", c->mx }, { "aux", aux },
     };
     for (int i = 0; i < 5; i++) {
-        DWORD code = t_run_child("numdevs_race", cases[i].fam, 170000);
+        DWORD code = t_run_child("numdevs_race", cases[i].fam, 60000);
         CHECKF(code == 100 + cases[i].want, "%s: child exit 0x%lx, want %u (100 + count %u)", cases[i].fam, code,
                100 + cases[i].want, cases[i].want);
     }

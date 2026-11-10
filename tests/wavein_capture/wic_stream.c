@@ -257,7 +257,7 @@ TEST(wic_capture_order_invariant_eight) {
     EXPECT_EQ(U(waveInStart)(s.h), 0);
     DWORD t0 = wic_now(); int viol = 0, polls = 0;
     while (wic_now() - t0 < FIRST_MS + 1000) {
-        DWORD fl[8]; for (int i = 0; i < 8; i++) fl[i] = ((volatile WAVEHDR *)&s.hdr[i])->dwFlags;
+        DWORD fl[8]; for (int i = 7; i >= 0; i--) fl[i] = ((volatile WAVEHDR *)&s.hdr[i])->dwFlags;
         /* sample from the last to the first: if k is DONE, every j<k must be DONE too */
         for (int k = 7; k > 0; k--) if (fl[k] & WHDR_DONE) for (int j = 0; j < k; j++) if (!(fl[j] & WHDR_DONE)) viol++;
         polls++;
@@ -559,7 +559,7 @@ TEST(wic_close_after_all_done_ok) {
     /* nothing queued: close works without Stop/Reset, even with a prepared header */
     EXPECT_EQ(s.hdr[0].dwFlags, 3);
     EXPECT_EQ(U(waveInClose)(s.h), 0);
-    HANDLE ev = s.ev; s.h = NULL;
+    s.h = NULL;
     /* header stays as it was (the driver does not unprepare) */
     EXPECT_EQ(s.hdr[0].dwFlags, 3);
     s.hdr[0].dwFlags = 0;   /* teardown: nothing to unprepare on a closed handle */

@@ -95,11 +95,11 @@ TEST(mh_list_many_waveout_handles) {
 }
 
 /* ---- handle values seen by callbacks ---- */
-typedef struct { HWAVEOUT h[3]; UINT msg[3]; DWORD tid[3]; LONG n; } cbrec_t;
+typedef struct { HWAVEOUT h[3]; UINT msg[3]; DWORD tid[3]; volatile LONG n; } cbrec_t;
 static void CALLBACK wo_cb(HWAVEOUT hwo, UINT msg, DWORD_PTR inst, DWORD_PTR p1, DWORD_PTR p2) {
     cbrec_t *r = (cbrec_t *)inst;
-    LONG i = r->n;
-    if (i < 3) { r->h[i] = hwo; r->msg[i] = msg; r->tid[i] = GetCurrentThreadId(); r->n = i + 1; }
+    LONG i = InterlockedIncrement(&r->n) - 1;
+    if (i < 3) { r->h[i] = hwo; r->msg[i] = msg; r->tid[i] = GetCurrentThreadId(); }
 }
 TEST(mh_callback_function_receives_handle) {
     REQUIRE(U(waveOutOpen)); REQUIRE(U(waveOutClose));
@@ -112,6 +112,8 @@ TEST(mh_callback_function_receives_handle) {
     if (r) return;
     EXPECT_EQ(mh_play_silence(h, 30, 3000), 0);
     EXPECT_EQ(U(waveOutClose)(h), 0);
+    for (int w = 0; w < 100 && rec.n < 3; w++) Sleep(10);   /* up to 1 s for the last callback */
+    Sleep(20);
     EXPECT_EQ(rec.n, 3);
     if (rec.n == 3) {
         EXPECT_EQ(rec.msg[0], WOM_OPEN); EXPECT_EQ(rec.msg[1], WOM_DONE); EXPECT_EQ(rec.msg[2], WOM_CLOSE);

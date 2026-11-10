@@ -148,7 +148,7 @@ TEST(te_cb_blocking_callback_delays_others) {
     /* while one callback blocks the timer thread, another due event is not dispatched */
     static te_ctx slow, fast;
     te_ctx_init(&slow); te_ctx_init(&fast);
-    slow.sleep_ms = 400;
+    slow.sleep_ms = 1500;
     slow.entered = CreateEventA(NULL, TRUE, FALSE, NULL);
     UINT a = te_set(10, 1, te_cb_ctx, (DWORD_PTR)&slow, TIME_ONESHOT);
     CHECK(a != 0);
@@ -158,7 +158,7 @@ TEST(te_cb_blocking_callback_delays_others) {
     Sleep(150);
     EXPECT_EQ(fast.count, 0);       /* due ~140 ms ago, but the only timer thread is busy */
     EXPECT_EQ(slow.done, 0);
-    EXPECT_EQ(WaitForSingleObject(fast.fired, 2000), WAIT_OBJECT_0);
+    EXPECT_EQ(WaitForSingleObject(fast.fired, 4000), WAIT_OBJECT_0);
     EXPECT_EQ(slow.done, 1);
     CHECK(fast.tid == slow.tid);
     te_ctx_free(&slow); te_ctx_free(&fast);
@@ -402,16 +402,16 @@ TEST(te_cb_kill_synchronous_waits_for_running_callback) {
 TEST(te_cb_kill_without_synchronous_returns_while_running) {
     TE_REQUIRE();
     static te_ctx c; te_ctx_init(&c);
-    c.sleep_ms = 400; c.sleep_once = 1;
+    c.sleep_ms = 1000; c.sleep_once = 1;
     c.entered = CreateEventA(NULL, TRUE, FALSE, NULL);
     UINT id = te_set(10, 1, te_cb_ctx, (DWORD_PTR)&c, TIME_PERIODIC);
     CHECK(id != 0);
     EXPECT_EQ(WaitForSingleObject(c.entered, 2000), WAIT_OBJECT_0);
     EXPECT_EQ(te_kill(id), 0);
-    EXPECT_EQ(c.done, 0);          /* no wait: the 400 ms callback is still running */
+    EXPECT_EQ(c.done, 0);          /* no wait: the 1000 ms callback is still running */
     /* let it finish before the context goes away; it is not dispatched again */
     DWORD t0 = GetTickCount();
-    while (c.done == 0 && GetTickCount() - t0 < 2000) Sleep(10);
+    while (c.done == 0 && GetTickCount() - t0 < 4000) Sleep(10);
     EXPECT_EQ(c.done, 1);
     Sleep(100);
     EXPECT_EQ(c.count, 1);

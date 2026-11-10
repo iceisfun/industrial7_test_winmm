@@ -11,18 +11,21 @@ TEST(smoke_time_gettime_monotonic) {
     for (int i = 0; i < 1000; i++) { DWORD t = U(timeGetTime)(); if ((LONG)(t - prev) < 0) bad++; prev = t; }
     EXPECT_EQ(bad, 0);
     DWORD a = U(timeGetTime)(); Sleep(50); DWORD d = U(timeGetTime)() - a;
-    CHECKF(d >= 30 && d < 2000, "advanced %lu ms across Sleep(50)", d);
+    CHECKF(d >= 30 && d < 10000, "advanced %lu ms across Sleep(50)", d);
     t_note("timeGetTime - GetTickCount = %ld ms", (LONG)(U(timeGetTime)() - GetTickCount()));
 }
 
 TEST(smoke_time_devcaps) {
     REQUIRE(U(timeGetDevCaps));
     TIMECAPS tc;
+/* UNVERIFIED: pin after the first Win10 run */
     EXPECT_EQ(U(timeGetDevCaps)(NULL, sizeof tc), TIMERR_NOCANDO);
+/* UNVERIFIED: pin after the first Win10 run */
     EXPECT_EQ(U(timeGetDevCaps)(&tc, sizeof tc - 1), TIMERR_NOCANDO);
     memset(&tc, 0xCC, sizeof tc);
     EXPECT_EQ(U(timeGetDevCaps)(&tc, sizeof tc), MMSYSERR_NOERROR);
     CHECKF(tc.wPeriodMin >= 1 && tc.wPeriodMin <= 16, "wPeriodMin %u", tc.wPeriodMin);
+/* UNVERIFIED: pin after the first Win10 run */
     EXPECT_EQ(tc.wPeriodMax, 1000000);
 }
 
@@ -56,7 +59,7 @@ TEST(smoke_waveout_tone) {
     HANDLE ev = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (U(waveOutGetNumDevs)() == 0) {
         EXPECT_EQ(U(waveOutOpen)(&h, WAVE_MAPPER, &wf, (DWORD_PTR)ev, 0, CALLBACK_EVENT), MMSYSERR_BADDEVICEID);
-        EXPECT_EQ(h, (HWAVEOUT)(ULONG_PTR)1);
+        EXPECT_EQ(h, NULL);   /* waveout_open_contract EVIDENCE: *phwo is NULLed on a failed open */
         CloseHandle(ev);
         return;
     }

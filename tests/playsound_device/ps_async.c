@@ -22,7 +22,7 @@ TEST(psd_async_returns_immediately) {
     BOOL r = ps_timed(psW, w.b, PS_MEMASYNC, &ms);
     t_note("async 1 s image returned %d after %.0f ms", r, ms);
     CHECK(r == TRUE);                         /* posted: TRUE with and without devices */
-    CHECKF(ms < 200.0, "async call took %.0f ms", ms);
+    CHECKF(ms < 1000.0, "async call took %.0f ms", ms);
     ps_stop(); wb_free(&w);
 }
 

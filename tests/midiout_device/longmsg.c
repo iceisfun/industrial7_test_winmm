@@ -43,6 +43,8 @@ TEST(midiout_device_long_gs_reset_protocol) {
         t_note("id 0x%x flags right after LongMsg 0x%lx", g_ids[ii_], f_ret);
         CHECK(f_ret & MHDR_PREPARED);
         CHECKF(mod_wait_done(&m, 2000), "id 0x%x flags 0x%lx", g_ids[ii_], m.dwFlags);
+        /* DONE can be set a moment before INQUEUE clears: wait for DONE without INQUEUE */
+        for (int w = 0; w < 200 && (m.dwFlags & (MHDR_DONE | MHDR_INQUEUE)) != MHDR_DONE; w++) Sleep(10);
         EXPECT_EQ(m.dwFlags, MHDR_PREPARED | MHDR_DONE);
         EXPECT_EQ(UH(h, &m), MMSYSERR_NOERROR);
         EXPECT_EQ(m.dwFlags, MHDR_DONE);
@@ -123,6 +125,7 @@ TEST(midiout_device_long_clears_isstrm) {
 }
 
 /* the 0x1000 / 0x2000 bits are allowed by the masks; Prepare keeps neither (dwFlags = 0 first) */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_device_long_reserved_bits) {
     MOD_NEED_LIVE(); REQ_LONG();
     static const DWORD bits[] = { 0x1000, 0x2000, 0x3000 };
@@ -165,7 +168,8 @@ TEST(midiout_device_long_unterminated_sysex) {
             int done = r == MMSYSERR_NOERROR ? mod_wait_done(&m, 2000) : -1;
             t_note("id 0x%x %s: LongMsg=%u done=%d flags=0x%lx", g_ids[ii_], t[i].name, r, done, m.dwFlags);
             CHECKF(r == MMSYSERR_NOERROR, "%s r=%u", t[i].name, r);
-            CHECKF(done == 1, "%s", t[i].name);
+            /* completion of a malformed sysex is driver-defined: recorded only; drain_hdr resets if still queued */
+            if (done != 1) t_note("id 0x%x %s: not DONE within 2 s (INQUEUE kept); resetting", g_ids[ii_], t[i].name);
             drain_hdr(h, &m);
         }
         /* the handle still works after the odd buffers */
@@ -229,6 +233,7 @@ TEST(midiout_device_long_large_buffers) {
 }
 
 /* more than 64 KB: the midiOut path has no 64 KB limit in winmm (that limit is the stream prepare's) */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_device_long_over_64k) {
     MOD_NEED_LIVE(); REQ_LONG();
     DWORD n = 70000;
@@ -343,11 +348,12 @@ TEST(midiout_device_long_unprepare_while_queued) {
         }
         t_note("INQUEUE observed after LongMsg returned: %d (0 = the synth consumed the buffer synchronously)", seen);
         mod_close(h);
+        if (!seen) { HeapFree(GetProcessHeap(), 0, buf); t_skip("INQUEUE never observed: queued-unprepare not exercised"); return; }
     }
     HeapFree(GetProcessHeap(), 0, buf);
 }
 
-/* prepared on one handle, sent on another handle of the same device (after the first closed) */
+/* PROBE (records only, asserts nothing; not a verified test): prepared on one handle, sent on another handle of the same device (after the first closed) */
 TEST(midiout_device_long_header_moved_between_handles) {
     MOD_NEED_LIVE(); REQ_LONG();
     HMIDIOUT a = mod_open_null(0);

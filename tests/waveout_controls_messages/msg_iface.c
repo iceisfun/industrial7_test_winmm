@@ -181,8 +181,10 @@ static void fiid_on(const wcm_dir *d, UINT id)
     /* An MMDevice endpoint id: "{0.0.0.00000000}.{guid}" for render, "{0.0.1.00000000}.{guid}" for capture. */
     static const WCHAR pre_out[] = L"{0.0.0.", pre_in[] = L"{0.0.1.";
     const WCHAR *pre = d->is_out ? pre_out : pre_in;
+    /* UNVERIFIED: pin after the first Win10 run */
     CHECKF(len >= 7 && !memcmp(buf, pre, 7 * sizeof(WCHAR)), "%s id %u fiid prefix \"%s\"", d->name, id, wcm_w2a(buf));
     if (len >= 2) CHECK(buf[len - 1] == '}');
+    /* UNVERIFIED: pin after the first Win10 run */
     /* truncation / count 0: every copy failure is MOREDATA here */
     static WCHAR b2[BUFW];
     fill(b2, BUFW);

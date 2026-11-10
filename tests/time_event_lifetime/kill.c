@@ -46,6 +46,7 @@ static void kl_sync_case(UINT flags, DWORD sleep_ms, UINT delay) {
     } else {
         /* one-shot without SYNCHRONOUS: the slot is still occupied while the callback runs -> kill 0 */
         EXPECT_EQ(r, 0);
+        CHECKF(done_at_return == 0, "non-synchronous kill waited for the callback (flags 0x%x, %lu ms)", flags, dt);
         t_note("non-synchronous kill flags 0x%x returned after %lu ms, callback done=%ld", flags, dt, done_at_return);
     }
     /* wait for the callback to finish in any case, then nothing else happens */
@@ -60,8 +61,8 @@ static void kl_sync_case(UINT flags, DWORD sleep_ms, UINT delay) {
 }
 TEST(tl_kill_sync_periodic_waits) { TL_REQUIRE(); kl_sync_case(TIME_PERIODIC | TIME_KILL_SYNCHRONOUS, 200, 10); }
 TEST(tl_kill_sync_oneshot_waits) { TL_REQUIRE(); kl_sync_case(TIME_ONESHOT | TIME_KILL_SYNCHRONOUS, 200, 10); }
-TEST(tl_kill_sync_periodic_waits_short) { TL_REQUIRE(); kl_sync_case(TIME_PERIODIC | TIME_KILL_SYNCHRONOUS, 60, 5); }
-TEST(tl_kill_sync_periodic_waits_1ms) { TL_REQUIRE(); kl_sync_case(TIME_PERIODIC | TIME_KILL_SYNCHRONOUS, 150, 1); }
+TEST(tl_kill_sync_periodic_waits_short) { TL_REQUIRE(); kl_sync_case(TIME_PERIODIC | TIME_KILL_SYNCHRONOUS, 300, 5); }
+TEST(tl_kill_sync_periodic_waits_1ms) { TL_REQUIRE(); kl_sync_case(TIME_PERIODIC | TIME_KILL_SYNCHRONOUS, 300, 1); }
 TEST(tl_kill_sync_oneshot_waits_long_delay) { TL_REQUIRE(); kl_sync_case(TIME_ONESHOT | TIME_KILL_SYNCHRONOUS, 120, 40); }
 TEST(tl_kill_async_periodic_returns) { TL_REQUIRE(); kl_sync_case(TIME_PERIODIC, 200, 10); }
 TEST(tl_kill_async_oneshot_returns) { TL_REQUIRE(); kl_sync_case(TIME_ONESHOT, 200, 10); }
@@ -79,6 +80,7 @@ TEST(tl_kill_async_does_not_wait_for_callback) {
     EXPECT_EQ(TKE(id), 0);
     DWORD dt = GetTickCount() - t0;
     LONG d = b.done;
+    CHECKF(d == 0, "async kill waited for the running callback (%lu ms)", dt);
     t_note("async kill took %lu ms, callback done=%ld", dt, d);
     tl_wait_ge(&b.done, 1, 3000);
     Sleep(50);

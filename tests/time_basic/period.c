@@ -106,7 +106,7 @@ TEST(time_basic_period_16_1000_ffffffff) {
     UINT u = tb_umax();
     for (size_t i = 0; i < 3; i++) {
         UINT p = ps[i];
-        if (p < u) { t_note("period %u is below uMax=%u here, counted", p); EXPECT_EQ(B(p), 0); EXPECT_EQ(E(p), 0); EXPECT_EQ(E(p), TB_NOCANDO); continue; }
+        if (p < u) { t_note("period %u is below uMax=%u here, counted", p, u); EXPECT_EQ(B(p), 0); EXPECT_EQ(E(p), 0); EXPECT_EQ(E(p), TB_NOCANDO); continue; }
         CHECKF(B(p) == 0, "Begin(%u)", p);
         CHECKF(E(p) == 0, "End(%u)", p);
         CHECKF(E(p) == 0, "End(%u) again", p);

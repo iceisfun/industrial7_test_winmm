@@ -303,8 +303,11 @@ TEST(tl_cap_oneshot_completion_frees_slot) {
 CHILD(tl_cap_hold) {
     TL_CHILD_BEGIN();
     HANDLE go = OpenEventA(SYNCHRONIZE, FALSE, argc > 2 ? argv[2] : "x");
+    char rn[96]; snprintf(rn, sizeof rn, "%s_rdy%s", argc > 2 ? argv[2] : "x", argc > 3 ? argv[3] : "");
+    HANDLE rdy = OpenEventA(EVENT_MODIFY_STATE, FALSE, rn);
     UINT ids[16]; int ok = 0;
     for (int i = 0; i < 16; i++) { ids[i] = TSE(10000, 0, cap_nop, 0, TIME_PERIODIC); ok += ids[i] != 0; }
+    if (rdy) { SetEvent(rdy); CloseHandle(rdy); }
     tl_rec("ok", ok);
     tl_rec("over", TSE(10000, 0, cap_nop, 0, TIME_PERIODIC));
     tl_rec("go", go ? WaitForSingleObject(go, 10000) : 99);
@@ -319,19 +322,23 @@ TEST(tl_cap_is_per_process) {
     char name[64]; snprintf(name, sizeof name, "tl_cap_go_%lu", GetCurrentProcessId());
     HANDLE go = CreateEventA(NULL, TRUE, FALSE, name);
     REQUIRE(go);
+    char rn1[96], rn2[96]; snprintf(rn1, sizeof rn1, "%s_rdy1", name); snprintf(rn2, sizeof rn2, "%s_rdy2", name);
+    HANDLE rdy[2] = { CreateEventA(NULL, TRUE, FALSE, rn1), CreateEventA(NULL, TRUE, FALSE, rn2) };
+    REQUIRE(rdy[0] && rdy[1]);
     char p1[MAX_PATH], p2[MAX_PATH], a1[MAX_PATH + 100], a2[MAX_PATH + 100];
     t_tmpfile(p1, sizeof p1, "hold1.txt"); t_tmpfile(p2, sizeof p2, "hold2.txt");
-    snprintf(a1, sizeof a1, "\"%s\" %s", p1, name); snprintf(a2, sizeof a2, "\"%s\" %s", p2, name);
+    snprintf(a1, sizeof a1, "\"%s\" %s 1", p1, name); snprintf(a2, sizeof a2, "\"%s\" %s 2", p2, name);
     PROCESS_INFORMATION pi1, pi2;
     HANDLE h1 = t_spawn_child("tl_cap_hold", a1, 0, NULL, NULL, NULL, FALSE, NULL, &pi1);
     HANDLE h2 = t_spawn_child("tl_cap_hold", a2, 0, NULL, NULL, NULL, FALSE, NULL, &pi2);
     CHECK(h1 && h2);
     /* the parent itself can still allocate while both children hold 16 each */
-    Sleep(500);
+    EXPECT_EQ(WaitForMultipleObjects(2, rdy, TRUE, 10000), WAIT_OBJECT_0);   /* both children hold their 16 */
     UINT mine = TSE(10000, 0, cap_nop, 0, TIME_PERIODIC);
     CHECK(mine != 0);
     EXPECT_EQ(TKE(mine), 0);
     SetEvent(go);
+    CloseHandle(rdy[0]); CloseHandle(rdy[1]);
     DWORD c1 = 0xDEAD, c2 = 0xDEAD;
     if (h1) { if (WaitForSingleObject(h1, 20000) != WAIT_OBJECT_0) TerminateProcess(h1, 1); GetExitCodeProcess(h1, &c1); CloseHandle(h1); CloseHandle(pi1.hThread); }
     if (h2) { if (WaitForSingleObject(h2, 20000) != WAIT_OBJECT_0) TerminateProcess(h2, 1); GetExitCodeProcess(h2, &c2); CloseHandle(h2); CloseHandle(pi2.hThread); }

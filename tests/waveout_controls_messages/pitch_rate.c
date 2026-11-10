@@ -25,6 +25,7 @@ static int ctl_table(ctl out[2])
 
 /* ---------------------------------------------------------------- exports */
 
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(wcm_pr_exports_resolve)
 {
     REQUIRE(U(waveOutGetPitch));

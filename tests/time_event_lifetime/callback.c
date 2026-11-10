@@ -66,7 +66,7 @@ static void cb_silent_kind(UINT kind, UINT extra) {
     Sleep(150);
     EXPECT_EQ(cb_kind_hits, 0);
     /* the one-shot fired (silently) and freed its slot; the periodic is still live */
-    MMRESULT r = TL_NOCANDO + 1; for (int i = 0; i < 50; i++) { r = TKE(os); if (r == TL_NOCANDO) break; Sleep(10); }
+    MMRESULT r = TKE(os); /* first call: a live event would be killed here (0), not NOCANDO */
     CHECKF(r == TL_NOCANDO, "kind 0x%x one-shot still live: %u", kind, r);
     EXPECT_EQ(TKE(pe), 0);
     EXPECT_EQ(TKE(pe), TL_NOCANDO);
@@ -96,7 +96,7 @@ TEST(tl_cb_null_function) {
         UINT pe = TSE(5, 1, NULL, 0, TIME_PERIODIC | ex[i]);
         CHECK(os != 0); CHECK(pe != 0);
         Sleep(120);
-        MMRESULT r = 0; for (int k = 0; k < 50; k++) { r = TKE(os); if (r == TL_NOCANDO) break; Sleep(10); }
+        MMRESULT r = TKE(os);
         EXPECT_EQ(r, TL_NOCANDO);
         EXPECT_EQ(TKE(pe), 0);
         EXPECT_EQ(TKE(pe), TL_NOCANDO);
@@ -133,8 +133,9 @@ TEST(tl_cb_eventpulse_leaves_unsignalled) {
     UINT id = TSE(10, 1, (LPTIMECALLBACK)ma, 0, TIME_ONESHOT | TIME_CALLBACK_EVENT_PULSE);
     CHECK(id != 0);
     Sleep(150);
+    /* one-shot already fired and freed its slot (first kill is NOCANDO) => the pulse ran before this check */
+    MMRESULT r = TKE(id);
     EXPECT_EQ(WaitForSingleObject(ma, 0), WAIT_TIMEOUT);
-    MMRESULT r = 0; for (int k = 0; k < 50; k++) { r = TKE(id); if (r == TL_NOCANDO) break; Sleep(10); }
     EXPECT_EQ(r, TL_NOCANDO);
     CloseHandle(ma);
 }

@@ -92,6 +92,7 @@ TEST(midiout_device_noaudio_stream_open) {
         t_note("noaudio midiStreamOpen(0x%x) = %u", ids[i], r);
         CHECK(r != MMSYSERR_NOERROR);
         if (r == MMSYSERR_NOERROR) { U(midiStreamClose)(s); continue; }
+        /* UNVERIFIED: pin after the first Win10 run */
         CHECK(s == NULL);
     }
 }

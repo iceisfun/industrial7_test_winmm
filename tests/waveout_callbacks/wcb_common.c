@@ -169,7 +169,9 @@ void wcb_win_pump(HWND w, wcb_log *L, LONG want, DWORD ms) {
 }
 
 int wcb_win_peek_count(HWND w, UINT lo, UINT hi) {
-    /* Remove matching messages into a local list, then re-post them in order: PM_NOREMOVE cannot count. */
+    /* Remove matching messages into a local list, then re-post them in order: PM_NOREMOVE cannot count.
+     * Re-posted messages go behind any that arrive meanwhile and lose their time stamps: call it only once the
+     * stream has quiesced, before an order check among the same range (as wcb_queued.c does). */
     MSG got[64]; int n = 0;
     while (n < 64 && PeekMessageA(&got[n], w, lo, hi, PM_REMOVE)) n++;
     for (int i = 0; i < n; i++) PostMessageA(w, got[i].message, got[i].wParam, got[i].lParam);

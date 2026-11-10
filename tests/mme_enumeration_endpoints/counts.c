@@ -270,7 +270,7 @@ TEST(enum_counts_first_call_race_in_fresh_process) {
     ee_counts s; ee_snapshot(&s);
     char args[128];
     snprintf(args, sizeof args, "%u,%u,%u,%u,%u,%u", s.n[0], s.n[1], s.n[2], s.n[3], s.n[4], s.n[5]);
-    DWORD code = t_run_child("first_call_race", args, 90000);
+    DWORD code = t_run_child("first_call_race", args, 10000);
     EXPECT_EQ(code, 0);
 }
 TEST(enum_counts_first_call_race_repeated) {
@@ -279,7 +279,7 @@ TEST(enum_counts_first_call_race_repeated) {
     char args[128];
     snprintf(args, sizeof args, "%u,%u,%u,%u,%u,%u", s.n[0], s.n[1], s.n[2], s.n[3], s.n[4], s.n[5]);
     for (int i = 0; i < 3; i++) {
-        DWORD code = t_run_child("first_call_race", args, 90000);
+        DWORD code = t_run_child("first_call_race", args, 10000);
         CHECKF(code == 0, "run %d exit 0x%lx", i, code);
     }
 }
@@ -294,7 +294,7 @@ CHILD(count_one) {
 static void child_count(int fam) {
     UINT parent = ee_numdevs(fam);
     char a[16]; snprintf(a, sizeof a, "%d", fam);
-    DWORD code = t_run_child("count_one", a, 90000);
+    DWORD code = t_run_child("count_one", a, 10000);
     CHECKF(code == parent, "%s child %lu parent %u", ee_family_name[fam], code, parent);
 }
 #define CHILD_TEST(fam, tag) TEST(enum_counts_child_first_call_##tag) { REQUIRE(U(waveOutGetNumDevs)); child_count(fam); }

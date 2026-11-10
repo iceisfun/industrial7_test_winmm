@@ -275,6 +275,7 @@ TEST(wcm_msg_query_module)
 }
 
 /* 0x80A copies the driver's name with a count of dw2 - 1 characters; any failure is MMSYSERR_INVALPARAM. */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(wcm_msg_driver_name)
 {
     wcm_dir d[2];
@@ -325,6 +326,7 @@ TEST(wcm_msg_query_mappable)
 }
 
 /* Unknown messages on an id go to the driver. */
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(wcm_msg_unknown_message_record)
 {
     wcm_dir d[2];

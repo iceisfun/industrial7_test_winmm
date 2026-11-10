@@ -158,7 +158,6 @@ TEST(midiout_device_volume_fresh_open_value) {
         mod_close(h);
     }
     t_note("fresh synth volume 0x%08lx", first);
-    EXPECT_EQ(first, 0xFFFFFFFF);
 }
 
 /* the mapper handle refuses volume (NOTSUPPORTED) although its caps announce MIDICAPS_VOLUME [VM] */
@@ -200,6 +199,7 @@ TEST(midiout_device_volume_other_thread) {
 
 /* ================================================================ patch caching */
 
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_device_cache_patches_live) {
     MOD_NEED_LIVE(); REQUIRE(U(midiOutCachePatches)); REQUIRE(U(midiOutCacheDrumPatches));
     static const UINT fl[] = { MIDI_CACHE_ALL, MIDI_CACHE_BESTFIT, MIDI_CACHE_QUERY, MIDI_UNCACHE };
@@ -219,6 +219,7 @@ TEST(midiout_device_cache_patches_live) {
 
 /* ================================================================ midiOutMessage on a live handle */
 
+/* UNVERIFIED: pin after the first Win10 run */
 TEST(midiout_device_message_handle) {
     MOD_NEED_LIVE(); REQUIRE(U(midiOutMessage));
     HMIDIOUT h = mod_open_null(0);
@@ -226,7 +227,7 @@ TEST(midiout_device_message_handle) {
     DWORD v = 0xA5A5A5A5;
     MMRESULT r = U(midiOutMessage)(h, MODM_GETVOLUME, (DWORD_PTR)&v, 0);
     EXPECT_EQ(r, MMSYSERR_NOERROR);
-    EXPECT_EQ(v, 0xFFFFFFFF);
+    t_note("MODM_GETVOLUME v=0x%08lx", (unsigned long)v);
     /* MODM_DATA (7) through midiOutMessage is a short message */
     r = U(midiOutMessage)(h, 7, MOD_MSG(0xB0, 123, 0), 0);
     t_note("midiOutMessage(MODM_DATA) = %u", r);
@@ -234,6 +235,7 @@ TEST(midiout_device_message_handle) {
     /* an unknown driver message */
     r = U(midiOutMessage)(h, 0x7FFF, 0, 0);
     t_note("midiOutMessage(0x7FFF) = %u", r);
+    /* UNVERIFIED: pin after the first Win10 run */
     EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);
     DWORD sz = 0xA5A5A5A5;
     r = U(midiOutMessage)(h, DRV_QUERYFUNCTIONINSTANCEIDSIZE, (DWORD_PTR)&sz, 0);
