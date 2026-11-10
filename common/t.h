@@ -59,9 +59,13 @@ void t_tmpfile(char *out, size_t cap, const char *leaf);
 void t_check(int ok, const char *file, int line, const char *expr, const char *fmt, ...);
 #define CHECK(c)          t_check(!!(c), __FILE__, __LINE__, #c, NULL)
 #define CHECKF(c, ...)    t_check(!!(c), __FILE__, __LINE__, #c, __VA_ARGS__)
-#define EXPECT_EQ(a, b)   t_check((ULONG_PTR)(a) == (ULONG_PTR)(b), __FILE__, __LINE__, #a " == " #b, "got 0x%llx want 0x%llx", (unsigned long long)(ULONG_PTR)(a), (unsigned long long)(ULONG_PTR)(b))
-#define EXPECT_NE(a, b)   t_check((ULONG_PTR)(a) != (ULONG_PTR)(b), __FILE__, __LINE__, #a " != " #b, "got 0x%llx", (unsigned long long)(ULONG_PTR)(a))
-#define EXPECT_STR(a, b)  t_check(!strcmp((a), (b)), __FILE__, __LINE__, #a " == " #b, "got \"%s\" want \"%s\"", (a), (b))
+/* Each operand is evaluated exactly once (a call inside EXPECT_EQ runs once, also when the check fails). */
+#define EXPECT_EQ(a, b)   do { ULONG_PTR a_ = (ULONG_PTR)(a), b_ = (ULONG_PTR)(b); \
+    t_check(a_ == b_, __FILE__, __LINE__, #a " == " #b, "got 0x%llx want 0x%llx", (unsigned long long)a_, (unsigned long long)b_); } while (0)
+#define EXPECT_NE(a, b)   do { ULONG_PTR a_ = (ULONG_PTR)(a), b_ = (ULONG_PTR)(b); \
+    t_check(a_ != b_, __FILE__, __LINE__, #a " != " #b, "got 0x%llx", (unsigned long long)a_); } while (0)
+#define EXPECT_STR(a, b)  do { const char *a_ = (a), *b_ = (b); \
+    t_check(!strcmp(a_, b_), __FILE__, __LINE__, #a " == " #b, "got \"%s\" want \"%s\"", a_, b_); } while (0)
 #define EXPECT_WSTR(a, b) t_check(!lstrcmpW((a), (b)), __FILE__, __LINE__, #a " == " #b, "wide string mismatch")
 /* Check GetLastError right after a call that must fail. */
 #define EXPECT_ERR(err)   do { DWORD e_ = GetLastError(); \
