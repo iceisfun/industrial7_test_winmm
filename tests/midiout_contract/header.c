@@ -374,8 +374,7 @@ TEST(midiout_contract_unprepare_live_keeps_other_bits) {
     MMRESULT r = UH(h, &m, sizeof(m));
     EXPECT_EQ(r, MMSYSERR_NOERROR);
     t_note("unprepare of PREPARED|DONE -> flags 0x%lx", m.dwFlags);
-    CHECK(!(m.dwFlags & MHDR_PREPARED));
-    CHECK(m.dwFlags & MHDR_DONE);
+    EXPECT_EQ(m.dwFlags, MHDR_DONE);
     moc_close(h);
 }
 
@@ -387,6 +386,8 @@ TEST(midiout_contract_prepare_live_buffer_not_checked) {
     MIDIHDR m; moc_hdr(&m, g_buf, 0, 0);
     MMRESULT r = PH(h, &m, sizeof(m));
     t_note("prepare length 0 -> %u flags 0x%lx", r, m.dwFlags);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
+    EXPECT_EQ(m.dwFlags, MHDR_PREPARED);
     if (r == MMSYSERR_NOERROR) {
         EXPECT_EQ(LM(h, &m, sizeof(m)), MMSYSERR_INVALPARAM);
         EXPECT_EQ(UH(h, &m, sizeof(m)), MMSYSERR_NOERROR);

@@ -36,14 +36,15 @@ TEST(midiout_contract_getvolume_bad_ids_2_untouched) {
     EXPECT_EQ(GV(0x100000000ull, &vol), MMSYSERR_BADDEVICEID);
 }
 
+/* By id, with no handle open in this process, the synth answers MMSYSERR_NODRIVER (no driver instance yet);
+ * the mapper id answers NOTSUPPORTED [VM]. */
 TEST(midiout_contract_getvolume_id0_synth) {
     REQUIRE(U(midiOutGetVolume));
     DWORD vol = 0xA5A5A5A5;
     MMRESULT r = GV(0, &vol);
     t_note("midiOutGetVolume(id 0) = %u vol=0x%08lx", r, vol);
-    /* the synth advertises MIDICAPS_VOLUME; a no-device guest may still refuse */
-    if (moc_can_open()) EXPECT_EQ(r, MMSYSERR_NOERROR);
-    else CHECK(r != MMSYSERR_INVALPARAM && r != MMSYSERR_INVALHANDLE);
+    EXPECT_EQ(r, MMSYSERR_NODRIVER);
+    EXPECT_EQ(vol, 0xA5A5A5A5);
 }
 
 TEST(midiout_contract_getvolume_mapper) {
@@ -51,7 +52,22 @@ TEST(midiout_contract_getvolume_mapper) {
     DWORD vol = 0xA5A5A5A5;
     MMRESULT r = GV(MIDI_MAPPER, &vol);
     t_note("midiOutGetVolume(MIDI_MAPPER) = %u vol=0x%08lx", r, vol);
-    CHECK(r != MMSYSERR_BADDEVICEID && r != MMSYSERR_INVALPARAM);
+    EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);
+    EXPECT_EQ(vol, 0xA5A5A5A5);
+}
+
+/* while a synth handle is open the id path reaches the same driver instance; after the close it is gone */
+TEST(midiout_contract_getvolume_id0_follows_open_handle) {
+    REQUIRE(U(midiOutGetVolume)); REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
+    HMIDIOUT h = moc_open_id(0);
+    if (!h) return;
+    DWORD v = 0xA5A5A5A5;
+    EXPECT_EQ(GV(0, &v), MMSYSERR_NOERROR);
+    t_note("synth volume by id while open 0x%08lx", v);
+    moc_close(h);
+    v = 0xA5A5A5A5;
+    EXPECT_EQ(GV(0, &v), MMSYSERR_NODRIVER);
+    EXPECT_EQ(v, 0xA5A5A5A5);
 }
 
 TEST(midiout_contract_getvolume_mmio_handle_2) {
@@ -93,7 +109,8 @@ TEST(midiout_contract_getvolume_live_mapper_handle) {
     DWORD v = 0xA5A5A5A5;
     MMRESULT r = GV(h, &v);
     t_note("mapper handle volume r=%u v=0x%08lx", r, v);
-    EXPECT_EQ(r, MMSYSERR_NOERROR);
+    EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);   /* despite MIDICAPS_VOLUME in the mapper caps [VM] */
+    EXPECT_EQ(v, 0xA5A5A5A5);
     moc_close(h);
 }
 
@@ -118,18 +135,28 @@ TEST(midiout_contract_setvolume_mmio_handle_2) {
     moc_mmio_close(m);
 }
 
-/* write back the value just read (no net change) */
+/* By id with no handle open: NODRIVER, like GetVolume (nothing changes). Write-back of the read value while
+ * a handle is open: 0 and the value reads back unchanged. */
 TEST(midiout_contract_setvolume_id0_writeback) {
-    REQUIRE(U(midiOutGetVolume)); REQUIRE(U(midiOutSetVolume));
+    REQUIRE(U(midiOutGetVolume)); REQUIRE(U(midiOutSetVolume)); REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
+    HMIDIOUT h = moc_open_id(0);
+    if (!h) return;
     DWORD v = 0;
-    MMRESULT r = GV(0, &v);
-    if (r != MMSYSERR_NOERROR) { t_note("GetVolume(0) = %u", r); t_skip("no readable synth volume"); return; }
-    MMRESULT s = SV(0, v);
-    t_note("SetVolume(0, 0x%08lx) = %u", v, s);
-    EXPECT_EQ(s, MMSYSERR_NOERROR);
-    DWORD v2 = 0;
+    EXPECT_EQ(GV(0, &v), MMSYSERR_NOERROR);
+    EXPECT_EQ(SV(0, v), MMSYSERR_NOERROR);
+    DWORD v2 = ~v;
     EXPECT_EQ(GV(0, &v2), MMSYSERR_NOERROR);
     EXPECT_EQ(v2, v);
+    moc_close(h);
+    EXPECT_EQ(SV(0, v), MMSYSERR_NODRIVER);
+}
+
+TEST(midiout_contract_setvolume_mapper_8) {
+    REQUIRE(U(midiOutGetVolume)); REQUIRE(U(midiOutSetVolume));
+    DWORD v = 0;
+    if (GV(MIDI_MAPPER, &v) != MMSYSERR_NOTSUPPORTED) { t_skip("mapper volume readable"); return; }
+    /* the mapper refuses volume by id, so a set cannot change anything */
+    EXPECT_EQ(SV(MIDI_MAPPER, 0xFFFFFFFF), MMSYSERR_NOTSUPPORTED);
 }
 
 TEST(midiout_contract_setvolume_live_handle_writeback) {
@@ -272,18 +299,21 @@ TEST(midiout_contract_message_driver_messages_id0) {
     DWORD n = 0xA5A5A5A5;
     MMRESULT r = MSG(0, MODM_GETNUMDEVS, 0, 0);
     t_note("synth MODM_GETNUMDEVS -> %u", r);
+    EXPECT_EQ(r, 1);
     MIDIOUTCAPSW c, ref; memset(&c, 0, sizeof(c)); memset(&ref, 0, sizeof(ref));
     r = MSG(0, MODM_GETDEVCAPS, &c, sizeof(c));
     t_note("synth MODM_GETDEVCAPS -> %u name='%ls'", r, c.szPname);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
     if (r == MMSYSERR_NOERROR) {
         EXPECT_EQ(U(midiOutGetDevCapsW)(0, &ref, sizeof(ref)), MMSYSERR_NOERROR);
         CHECK(!memcmp(&c, &ref, sizeof(c)));
     }
     r = MSG(0, MODM_GETVOLUME, &n, 0);
     t_note("synth MODM_GETVOLUME -> %u v=0x%lx", r, n);
+    EXPECT_EQ(r, MMSYSERR_NODRIVER);
     r = MSG(0, 0x7FFF, 0, 0);
     t_note("synth unknown msg 0x7FFF -> %u", r);
-    CHECK(r != MMSYSERR_BADDEVICEID);
+    EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);
 }
 
 /* a live handle sends the message to its driver instance */
@@ -294,10 +324,13 @@ TEST(midiout_contract_message_live_handle) {
     DWORD v = 0xA5A5A5A5;
     MMRESULT r = MSG(h, MODM_GETVOLUME, &v, 0);
     t_note("handle MODM_GETVOLUME -> %u v=0x%lx", r, v);
+    EXPECT_EQ(r, MMSYSERR_NOERROR);
     DWORD sz = 0xA5A5A5A5;
     r = MSG(h, DRV_QUERYFUNCTIONINSTANCEIDSIZE, &sz, 0);
     t_note("handle DRV_QUERYFUNCTIONINSTANCEIDSIZE -> %u size=%lu", r, sz);
-    CHECK(r != MMSYSERR_INVALHANDLE && r != MMSYSERR_BADDEVICEID);
+    /* by handle the query goes to the driver instance, which does not answer it (the id path does) [VM] */
+    EXPECT_EQ(r, MMSYSERR_NOTSUPPORTED);
+    EXPECT_EQ(sz, 0xA5A5A5A5);
     moc_close(h);
 }
 

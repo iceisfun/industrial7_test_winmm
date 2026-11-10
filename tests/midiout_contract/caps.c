@@ -219,41 +219,56 @@ static void a_trunc(UINT id) {
 TEST(midiout_contract_caps_a_truncation_synth) { REQ2(); a_trunc(0); }
 TEST(midiout_contract_caps_a_truncation_mapper) { REQ2(); a_trunc(MIDI_MAPPER); }
 
-/* A with sizeof(MIDIOUTCAPSA) (52) fills the classic struct; the 2A tail is the GUIDs */
+/* MIDIOUTCAPS2: A converts from a zeroed local MIDIOUTCAPS2W, so its GUIDs are zero when the driver does not
+ * fill them; the synth's W path writes only the classic 84 bytes and leaves the GUID tail alone [VM]. */
 TEST(midiout_contract_caps_a_2a_guids) {
     REQ2();
     MIDIOUTCAPS2A a; MIDIOUTCAPS2W w;
+    static const GUID zero;
     memset(&a, 0xCC, sizeof(a)); memset(&w, 0xCC, sizeof(w));
     EXPECT_EQ(sizeof(MIDIOUTCAPSA), 52);
+    EXPECT_EQ(sizeof(MIDIOUTCAPSW), 84);
     EXPECT_EQ(sizeof(MIDIOUTCAPS2W), 0x84);
     EXPECT_EQ(CAPA(0, (MIDIOUTCAPSA *)&a, sizeof(a)), MMSYSERR_NOERROR);
     EXPECT_EQ(CAPW(0, (MIDIOUTCAPSW *)&w, sizeof(w)), MMSYSERR_NOERROR);
-    CHECK(!memcmp(&a.ManufacturerGuid, &w.ManufacturerGuid, sizeof(GUID)));
-    CHECK(!memcmp(&a.ProductGuid, &w.ProductGuid, sizeof(GUID)));
-    CHECK(!memcmp(&a.NameGuid, &w.NameGuid, sizeof(GUID)));
-    t_note("synth ManufacturerGuid %08lx ProductGuid %08lx NameGuid %08lx",
-           w.ManufacturerGuid.Data1, w.ProductGuid.Data1, w.NameGuid.Data1);
+    CHECK(!memcmp(&a.ManufacturerGuid, &zero, sizeof(GUID)));
+    CHECK(!memcmp(&a.ProductGuid, &zero, sizeof(GUID)));
+    CHECK(!memcmp(&a.NameGuid, &zero, sizeof(GUID)));
+    CHECK(all_bytes((char *)&w + 84, sizeof(w) - 84, 0xCC));
+    memset(&a, 0xCC, sizeof(a)); memset(&w, 0xCC, sizeof(w));
+    EXPECT_EQ(CAPA(MIDI_MAPPER, (MIDIOUTCAPSA *)&a, sizeof(a)), MMSYSERR_NOERROR);
+    EXPECT_EQ(CAPW(MIDI_MAPPER, (MIDIOUTCAPSW *)&w, sizeof(w)), MMSYSERR_NOERROR);
+    t_note("mapper 2A Manufacturer %08lx 2W Manufacturer %08lx tail_untouched=%d", a.ManufacturerGuid.Data1,
+           w.ManufacturerGuid.Data1, all_bytes((char *)&w + 84, sizeof(w) - 84, 0xCC));
 }
 
 /* ---------------------------------------------------------------- W: driver-side copy */
 
-static void w_trunc(UINT id) {
+/* W: the driver copies min(cb, its struct) into the caller's buffer. The synth writes at most the 84-byte
+ * MIDIOUTCAPSW and rejects cb > sizeof(MIDIOUTCAPS2W) (0x84) with 11; the mapper accepts any cb [VM]. */
+static void w_trunc(UINT id, int synth) {
     MIDIOUTCAPS2W full; unsigned char buf[200];
     memset(&full, 0xCC, sizeof(full));
-    EXPECT_EQ(CAPW(id, (MIDIOUTCAPSW *)&full, sizeof(full)), MMSYSERR_NOERROR);
+    EXPECT_EQ(CAPW(id, (MIDIOUTCAPSW *)&full, sizeof(MIDIOUTCAPSW)), MMSYSERR_NOERROR);
     static const UINT cbs[] = { 1, 2, 3, 4, 7, 8, 9, 40, 72, 73, 80, 83, 84, 85, 100, 131, 132, 133, 200 };
     for (int i = 0; i < NELEM(cbs); i++) {
         UINT cb = cbs[i];
         memset(buf, 0xCC, sizeof(buf));
         MMRESULT r = CAPW(id, (MIDIOUTCAPSW *)buf, cb);
+        if (synth && cb > sizeof(MIDIOUTCAPS2W)) {
+            CHECKF(r == MMSYSERR_INVALPARAM, "id=0x%x cb=%u r=%u", id, cb, r);
+            CHECKF(all_bytes(buf, sizeof(buf), 0xCC), "id=0x%x cb=%u wrote", id, cb);
+            continue;
+        }
         CHECKF(r == MMSYSERR_NOERROR, "id=0x%x cb=%u r=%u", id, cb, r);
-        UINT n = cb < sizeof(full) ? cb : sizeof(full);
+        UINT n = cb < sizeof(MIDIOUTCAPSW) ? cb : sizeof(MIDIOUTCAPSW);
         CHECKF(!memcmp(buf, &full, n), "id=0x%x cb=%u prefix differs", id, cb);
-        CHECKF(all_bytes(buf + n, sizeof(buf) - n, 0xCC), "id=0x%x cb=%u wrote past %u", id, cb, n);
+        if (synth) CHECKF(all_bytes(buf + n, sizeof(buf) - n, 0xCC), "id=0x%x cb=%u wrote past %u", id, cb, n);
+        else if (cb <= sizeof(MIDIOUTCAPSW)) CHECKF(all_bytes(buf + n, sizeof(buf) - n, 0xCC), "id=0x%x cb=%u wrote past %u", id, cb, n);
     }
 }
-TEST(midiout_contract_caps_w_truncation_synth) { REQ2(); w_trunc(0); }
-TEST(midiout_contract_caps_w_truncation_mapper) { REQ2(); w_trunc(MIDI_MAPPER); }
+TEST(midiout_contract_caps_w_truncation_synth) { REQ2(); w_trunc(0, 1); }
+TEST(midiout_contract_caps_w_truncation_mapper) { REQ2(); w_trunc(MIDI_MAPPER, 0); }
 
 /* ---------------------------------------------------------------- 64-bit ids */
 
@@ -263,11 +278,13 @@ TEST(midiout_contract_caps_high_id_bits) {
     MIDIOUTCAPSA a; MIDIOUTCAPSW w;
     MMRESULT ra = CAPA(0x100000000ull, &a, sizeof(a));
     MMRESULT rw = CAPW(0x100000000ull, &w, sizeof(w));
-    t_note("caps id 0x100000000: A=%u W=%u", ra, rw);
+    EXPECT_EQ(ra, MMSYSERR_NOERROR);           /* masked to id 0 [VM] */
+    EXPECT_STR(a.szPname, "Microsoft GS Wavetable Synth");
     EXPECT_EQ(rw, MMSYSERR_BADDEVICEID);
     ra = CAPA((ULONG_PTR)-1, &a, sizeof(a));
     rw = CAPW((ULONG_PTR)-1, &w, sizeof(w));
-    t_note("caps id (UINT_PTR)-1: A=%u W=%u", ra, rw);
+    EXPECT_EQ(ra, MMSYSERR_NOERROR);           /* masked to 0xFFFFFFFF = the mapper [VM] */
+    EXPECT_STR(a.szPname, "Microsoft MIDI Mapper");
     EXPECT_EQ(rw, MMSYSERR_BADDEVICEID);
 }
 
@@ -293,7 +310,15 @@ TEST(midiout_contract_caps_live_handle_matches_id) {
     memset(&byid, 0, sizeof(byid)); memset(&byh, 0, sizeof(byh));
     EXPECT_EQ(CAPW(0, &byid, sizeof(byid)), MMSYSERR_NOERROR);
     EXPECT_EQ(CAPW(h, &byh, sizeof(byh)), MMSYSERR_NOERROR);
-    CHECK(!memcmp(&byid, &byh, sizeof(byid)));
+    EXPECT_WSTR(byh.szPname, byid.szPname);
+    EXPECT_EQ(byh.wTechnology, byid.wTechnology);
+    EXPECT_EQ(byh.dwSupport, byid.dwSupport);
+    EXPECT_EQ(byh.wChannelMask, byid.wChannelMask);
+    if (memcmp(&byid, &byh, sizeof(byid))) {
+        const unsigned char *x = (const unsigned char *)&byid, *y = (const unsigned char *)&byh;
+        for (unsigned i = 0; i < sizeof(byid); i++)
+            if (x[i] != y[i]) t_note("caps by handle differs at byte %u: id 0x%02x handle 0x%02x", i, x[i], y[i]);
+    }
     EXPECT_EQ(CAPA(h, &ah, sizeof(ah)), MMSYSERR_NOERROR);
     EXPECT_STR(ah.szPname, "Microsoft GS Wavetable Synth");
     EXPECT_EQ(CAPA(h, NULL, sizeof(ah)), MMSYSERR_INVALPARAM);

@@ -42,7 +42,8 @@ TEST(midiout_contract_shortmsg_live_silent_messages_0) {
     moc_close(h);
 }
 
-/* the upper byte of the DWORD is ignored, odd status values are passed through: record what the synth says */
+/* the upper byte of the DWORD is ignored and odd status values (0, a bare data byte, realtime bytes) are
+ * accepted by the synth: 0 [VM] */
 TEST(midiout_contract_shortmsg_live_odd_messages) {
     REQUIRE(U(midiOutShortMsg)); REQUIRE(U(midiOutOpen)); REQUIRE(U(midiOutClose));
     HMIDIOUT h = moc_open_live();
@@ -51,7 +52,7 @@ TEST(midiout_contract_shortmsg_live_odd_messages) {
     for (int i = 0; i < NELEM(msgs); i++) {
         MMRESULT r = U(midiOutShortMsg)(h, msgs[i]);
         t_note("shortmsg 0x%08lx -> %u", msgs[i], r);
-        CHECKF(r != MMSYSERR_INVALHANDLE, "msg 0x%lx", msgs[i]);
+        CHECKF(r == MMSYSERR_NOERROR, "msg 0x%lx -> %u", msgs[i], r);   /* the synth takes any DWORD [VM] */
     }
     moc_close(h);
 }
