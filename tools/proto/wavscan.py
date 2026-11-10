@@ -6,6 +6,8 @@ import numpy as np
 w = wave.open(sys.argv[1], 'rb')
 ch, sw, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
 raw = w.readframes(n)
+if n == 0:  # header not finalised (qemu killed): take everything after the data chunk header
+    blob = open(sys.argv[1], 'rb').read(); k = blob.find(b'data'); raw = blob[k + 8:] if k >= 0 else b''
 dt = {1: np.uint8, 2: np.int16, 4: np.int32}[sw]
 a = np.frombuffer(raw[: len(raw) // (sw * ch) * sw * ch], dtype=dt).astype(np.float64)
 if sw == 1: a -= 128

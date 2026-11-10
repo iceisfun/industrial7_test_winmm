@@ -33,6 +33,7 @@ Everything below is measured with `tools/proto/audprobe.c` (guest probe) driven 
 | noaudio | (none) | 0 | 0 | 1 | 0 | 0 | 0 | 16 | 0 | 0 |
 | hda-duplex-wav | intel-hda + hda-duplex, wav | 1 | 1 | 1 | 0 | 2 | 0 | 16 | 1 | 1 |
 | hda-output-wav | intel-hda + hda-output, wav | 1 | 0 | 1 | 0 | 1 | 0 | 16 | 1 | 0 |
+| multi | intel-hda + hda-output (none); ich9-intel-hda + hda-micro (none); usb-audio (wav); AC97, ES1370, sb16 (none) | 3 | 1 | 1 | 0 | 4 | 0 | 16 | 3 | 1 |
 @@R3TABLE@@
 
 Columns are the winmm `*GetNumDevs` results (midiOut counts the GS Wavetable Synth, not the mapper; joy is
@@ -51,6 +52,26 @@ Output-only (hda-output) differences that matter for tests:
 - The codec PnP id is `DEV_0012` (hda-output) vs `DEV_0022` (hda-duplex); endpoint GUIDs differ per codec.
 - Playback, PlaySound and MIDI behave exactly as with duplex; the wav capture matched the tone plan again
   (440/1000/660 Hz at -15.2/-15.3/-15.3 dBFS rms, GS synth 880 Hz at -39.0 dBFS).
+
+Alternative cards (multi boot, every QEMU 8.2 audio model at once):
+- `usb-audio` (on the default `-usb` UHCI controller): inbox `wdma_usb.inf` (usbaudio service RUNNING), PnP
+  `USB\VID_46F4&PID_0002&MI_00`, endpoint "Speakers (Audio Device)". It became the DEFAULT render endpoint for
+  all three roles over the two HDA speakers, and winmm puts the default first: waveOut 0 = "Speakers (Audio
+  Device)" (wMid 65535, wPid 65535), waveOut 1 / 2 = the HDA speakers ("Speakers (2- High Definition Au" is the
+  31-char truncation of the second controller's name), mixer order follows the same ordering. USB endpoint
+  volume range is [-128, +8] dB step 0.531, scalar 0.710 = 0 dB, period min 30000. The wav capture (attached to
+  usb-audio) recovered the full tone plan at -15.7 dBFS (0.5 dB below the HDA path).
+- `ich9-intel-hda` + `hda-micro`: inbox hdaudio, endpoints "Speakers (2- High Definition Audio Device)" and
+  "Microphone (High Definition Audio Device)"; the capture mixer source is MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE
+  (0x1003) instead of SRC_LINE (0x1002).
+- `AC97` (PCI 8086:2415) and `ES1370` (PCI 1274:5000): enumerated as "Multimedia Audio Controller", problem code
+  28 (no inbox driver). Unusable without third-party drivers; not worth installing into the base.
+- `sb16` (ISA): not enumerated at all (no ISA PnP). `adlib`, `gus`, `cs4231a` are ISA too and were not tried.
+- WAVE_MAPPER caps dwSupport was 0xE in this boot (no WAVECAPS_SAMPLEACCURATE) while every device reported 0x2E;
+  with a single HDA device the mapper reported 0x2E. Mapper support bits depend on the device set: do not hard
+  check them.
+- Capture through hda-micro completed a 0.5 s buffer in 516 ms (1016 ms in the hda-duplex boot): capture start
+  latency varies.
 
 @@R3NOTES@@
 
