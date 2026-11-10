@@ -28,7 +28,7 @@ configuration, about 2 minutes of guest time each, plus whatever the shared lock
 - Do not gate on AudioSrv: it is RUNNING in both configurations by logon. winmm itself waits for AudioSrv
   (see 4) so the first winmm call may block briefly on a very early boot, never fail.
 - Real playback is checkable: the `wav` audiodev records exactly what the guest renders (2 ch, 16-bit,
-  44100 Hz, resampled by QEMU, endpoint volume not applied). Frequency, level and duration of known tones
+  44100 Hz, resampled by QEMU; on HDA the -6 dB endpoint volume is not applied, on usb-audio the level was 0.5 dB lower). Frequency, level and duration of known tones
   are recovered by wavscan.py. Capture content is NOT injectable (the wav backend has no input voice; the
   capture device records silence), so capture tests can only check the buffer protocol and timing.
 
