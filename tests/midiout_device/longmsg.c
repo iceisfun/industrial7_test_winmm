@@ -47,9 +47,9 @@ TEST(midiout_device_long_gs_reset_protocol) {
          * Synth MHDR_INQUEUE can stay set after DONE (flags 0x23, then 0x21 after the unprepare): INQUEUE is recorded, not required clear. */
         for (int w = 0; w < 200 && (m.dwFlags & (MHDR_DONE | MHDR_INQUEUE)) != MHDR_DONE; w++) Sleep(10);
         t_note("id 0x%x flags once DONE: 0x%lx (INQUEUE %s)", g_ids[ii_], m.dwFlags, (m.dwFlags & MHDR_INQUEUE) ? "still set" : "clear");
-        EXPECT_EQ(m.dwFlags & ~MHDR_INQUEUE, MHDR_PREPARED | MHDR_DONE);
+        { DWORD fl_ = m.dwFlags & ~(DWORD)MHDR_INQUEUE; EXPECT_EQ(fl_, (DWORD)(MHDR_PREPARED | MHDR_DONE)); }
         EXPECT_EQ(UH(h, &m), MMSYSERR_NOERROR);
-        EXPECT_EQ(m.dwFlags & ~MHDR_INQUEUE, MHDR_DONE);
+        { DWORD fl_ = m.dwFlags & ~(DWORD)MHDR_INQUEUE; EXPECT_EQ(fl_, (DWORD)MHDR_DONE); }
         /* the caller's fields are untouched */
         EXPECT_EQ(m.dwUser, 0x1234ABCD);
         EXPECT_EQ(m.dwOffset, 0xDEAD);
